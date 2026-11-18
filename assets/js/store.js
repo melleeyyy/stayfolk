@@ -201,6 +201,11 @@ export async function verifyEmail(token) {
   return api.post('api/auth/verify', { token });
 }
 
+export async function sendTestEmail() {
+  if (mode !== 'remote') return { ok: false, provider: 'demo', error: 'Only the live site can send email.' };
+  return api.post('api/mail/test', {});
+}
+
 export async function resendVerification() {
   if (mode !== 'remote') return { ok: true };
   return api.post('api/auth/resend-verification', {});

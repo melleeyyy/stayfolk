@@ -464,6 +464,13 @@ async function handleApi(req, res, url) {
   /* ---- me ---- */
   const me = currentUser(req);
 
+  /* ---- mail diagnostic ---- */
+  if (pathname === '/api/mail/test' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const result = await mailer.sendTest({ to: me.email, name: me.name });
+    return json(res, 200, result);
+  }
+
   /* ---- email verification ---- */
   if (pathname === '/api/auth/verify' && (method === 'POST' || method === 'GET')) {
     const token = method === 'GET' ? searchParams.get('token') : (await readBody(req)).token;

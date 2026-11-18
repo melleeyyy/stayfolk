@@ -227,6 +227,55 @@ async function post(url, headers, body) {
 
 /* ------------------------------------------------------------------ send */
 
+/** Deliver or throw — used by send() and by the diagnostic test. */
+async function deliver({ to, subject, text, html }) {
+  const mode = provider();
+  if (mode === 'smtp') {
+    await smtpSend({ to, subject, html, text });
+    return mode;
+  }
+  if (mode === 'brevo') {
+    await post(
+      'https://api.brevo.com/v3/smtp/email',
+      { 'api-key': process.env.BREVO_API_KEY, accept: 'application/json' },
+      {
+        sender: { name: 'StayFolk', email: FROM_EMAIL },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+        textContent: text,
+      }
+    );
+    return mode;
+  }
+  await post(
+    'https://api.resend.com/emails',
+    { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+    { from: FROM, to, subject, html, text }
+  );
+  return mode;
+}
+
+/** Send one test message and report exactly what the provider said. */
+async function sendTest({ to, name }) {
+  const mode = provider();
+  if (mode === 'console') {
+    return { ok: false, provider: mode, error: 'No mail provider is configured on the server.' };
+  }
+  try {
+    const url = link(process.env.PUBLIC_URL || 'http://localhost', '/dashboard');
+    await deliver({
+      to,
+      subject: 'StayFolk test email',
+      text: `Hi ${name}, if you can read this, email delivery works. ${url}`,
+      html: wrap('Email delivery works', `Hi ${name}, if you can read this, StayFolk can send email through ${mode}.`, 'Open StayFolk', url),
+    });
+    return { ok: true, provider: mode };
+  } catch (err) {
+    return { ok: false, provider: mode, error: err.message };
+  }
+}
+
 async function send({ to, subject, text, html }) {
   const mode = provider();
 
@@ -238,27 +287,7 @@ async function send({ to, subject, text, html }) {
   }
 
   try {
-    if (mode === 'smtp') {
-      await smtpSend({ to, subject, html, text });
-    } else if (mode === 'brevo') {
-      await post(
-        'https://api.brevo.com/v3/smtp/email',
-        { 'api-key': process.env.BREVO_API_KEY, accept: 'application/json' },
-        {
-          sender: { name: 'StayFolk', email: FROM_EMAIL },
-          to: [{ email: to }],
-          subject,
-          htmlContent: html,
-          textContent: text,
-        }
-      );
-    } else {
-      await post(
-        'https://api.resend.com/emails',
-        { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        { from: FROM, to, subject, html, text }
-      );
-    }
+    await deliver({ to, subject, html, text });
     return true;
   } catch (err) {
     console.error('[stayfolk] email failed:', err.message);
@@ -291,4 +320,4 @@ function sendPasswordReset({ baseUrl, to, name, token }) {
   });
 }
 
-module.exports = { send, sendVerification, sendPasswordReset, provider, isConfigured, smtpSend };
+module.exports = { send, sendTest, sendVerification, sendPasswordReset, provider, isConfigured, smtpSend };

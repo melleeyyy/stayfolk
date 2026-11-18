@@ -836,7 +836,10 @@ export function dashboardView(tab = 'requests') {
               <input class="input" id="p-new" name="next" type="password" minlength="8" required autocomplete="new-password" /></div>
           </div>
           <p class="field-error" id="password-error" hidden></p>
-          <div><button class="btn btn--outline" type="submit">${icon('lock')}${esc(t('auth.changePassword'))}</button></div>
+          <div class="row row--wrap" style="gap:8px">
+            <button class="btn btn--outline" type="submit">${icon('lock')}${esc(t('auth.changePassword'))}</button>
+            ${store.isRemote() ? `<button class="btn btn--ghost btn--sm" type="button" data-action="test-email">${icon('message')}${esc(t('mail.test'))}</button>` : ''}
+          </div>
         </form>`
       : `<div class="stack" style="gap:14px">
           ${list.length ? list.map(requestRow).join('') : empty(t('dash.empty'), t('search.noneHint'), 'calendar')}

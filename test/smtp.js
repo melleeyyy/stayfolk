@@ -107,9 +107,16 @@ const check = (name, ok, detail = '') =>
     decoded.includes('https://stayfolk.example/#/verify?token=abc123'),
     decoded.slice(0, 60));
 
+  /* the diagnostic endpoint path: success and failure must both be reported */
+  const good = await mailer.sendTest({ to: 'someone@example.com', name: 'Anjali' });
+  check('sendTest reports success', good.ok === true, JSON.stringify(good));
+
+  process.env.SMTP_PORT = '9';
+  const bad = await mailer.sendTest({ to: 'someone@example.com', name: 'Anjali' });
+  check('sendTest reports the failure reason', bad.ok === false && typeof bad.error === 'string', bad.error || 'no error');
+
   server.close();
-  const failed = false;
-  process.exit(failed ? 1 : 0);
+  process.exit(0);
 })().catch((err) => {
   console.error('SMTP TEST CRASHED:', err);
   process.exit(1);

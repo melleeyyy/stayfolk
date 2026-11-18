@@ -5,6 +5,8 @@
 
 export const authExtra = {
   hi: {
+    'mail.test': 'टेस्ट ईमेल भेजें',
+    'mail.testOk': 'टेस्ट ईमेल भेजा गया — इनबॉक्स और स्पैम देखें',
     'auth.username': 'यूज़रनेम',
     'auth.usernameHint': '3–20 अक्षर: छोटे अक्षर, अंक और अंडरस्कोर।',
     'auth.passwordHint': 'कम से कम 8 अक्षर।',
@@ -25,6 +27,8 @@ export const authExtra = {
     'auth.resetSent': 'अगर वह खाता मौजूद है, तो रीसेट लिंक भेज दिया गया है।',
   },
   ml: {
+    'mail.test': 'ടെസ്റ്റ് ഇമെയിൽ അയക്കുക',
+    'mail.testOk': 'ടെസ്റ്റ് ഇമെയിൽ അയച്ചു — ഇൻബോക്സും സ്പാമും നോക്കുക',
     'auth.username': 'യൂസർനെയിം',
     'auth.usernameHint': '3–20 അക്ഷരം: ചെറിയ അക്ഷരങ്ങൾ, അക്കങ്ങൾ, അണ്ടർസ്കോർ.',
     'auth.passwordHint': 'കുറഞ്ഞത് 8 അക്ഷരം.',
@@ -45,6 +49,8 @@ export const authExtra = {
     'auth.resetSent': 'ആ അക്കൗണ്ട് ഉണ്ടെങ്കിൽ റീസെറ്റ് ലിങ്ക് അയച്ചിട്ടുണ്ട്.',
   },
   ta: {
+    'mail.test': 'சோதனை மின்னஞ்சல் அனுப்பு',
+    'mail.testOk': 'சோதனை மின்னஞ்சல் அனுப்பப்பட்டது — இன்பாக்ஸ், ஸ்பேம் பாருங்கள்',
     'auth.username': 'பயனர்பெயர்',
     'auth.usernameHint': '3–20 எழுத்துகள்: சிறிய எழுத்துகள், எண்கள், அண்டர்ஸ்கோர்.',
     'auth.passwordHint': 'குறைந்தது 8 எழுத்துகள்.',
@@ -65,6 +71,8 @@ export const authExtra = {
     'auth.resetSent': 'அந்தக் கணக்கு இருந்தால், மீட்டமைப்பு இணைப்பு அனுப்பப்பட்டுள்ளது.',
   },
   fr: {
+    'mail.test': 'Envoyer un e-mail de test',
+    'mail.testOk': 'E-mail de test envoyé — vérifiez la boîte de réception et les indésirables',
     'auth.username': "Nom d'utilisateur",
     'auth.usernameHint': '3 à 20 caractères : minuscules, chiffres et tiret bas.',
     'auth.passwordHint': 'Au moins 8 caractères.',
@@ -85,6 +93,8 @@ export const authExtra = {
     'auth.resetSent': 'Si ce compte existe, un lien de réinitialisation arrive.',
   },
   es: {
+    'mail.test': 'Enviar correo de prueba',
+    'mail.testOk': 'Correo de prueba enviado: revisa la bandeja y el spam',
     'auth.username': 'Nombre de usuario',
     'auth.usernameHint': '3–20 caracteres: minúsculas, números y guion bajo.',
     'auth.passwordHint': 'Al menos 8 caracteres.',
@@ -105,6 +115,8 @@ export const authExtra = {
     'auth.resetSent': 'Si esa cuenta existe, el enlace va en camino.',
   },
   de: {
+    'mail.test': 'Test-E-Mail senden',
+    'mail.testOk': 'Test-E-Mail gesendet — prüfe Posteingang und Spam',
     'auth.username': 'Benutzername',
     'auth.usernameHint': '3–20 Zeichen: Kleinbuchstaben, Zahlen und Unterstrich.',
     'auth.passwordHint': 'Mindestens 8 Zeichen.',
@@ -125,6 +137,8 @@ export const authExtra = {
     'auth.resetSent': 'Falls es dieses Konto gibt, ist der Link unterwegs.',
   },
   pt: {
+    'mail.test': 'Enviar e-mail de teste',
+    'mail.testOk': 'E-mail de teste enviado — verifique a caixa de entrada e o spam',
     'auth.username': 'Nome de utilizador',
     'auth.usernameHint': '3–20 caracteres: minúsculas, números e underscore.',
     'auth.passwordHint': 'Pelo menos 8 caracteres.',
@@ -145,6 +159,8 @@ export const authExtra = {
     'auth.resetSent': 'Se essa conta existir, o link está a caminho.',
   },
   ru: {
+    'mail.test': 'Отправить тестовое письмо',
+    'mail.testOk': 'Тестовое письмо отправлено — проверьте почту и спам',
     'auth.username': 'Имя пользователя',
     'auth.usernameHint': '3–20 символов: строчные латинские буквы, цифры и подчёркивание.',
     'auth.passwordHint': 'Не менее 8 символов.',
@@ -165,6 +181,8 @@ export const authExtra = {
     'auth.resetSent': 'Если такая учётная запись есть, письмо уже в пути.',
   },
   ar: {
+    'mail.test': 'إرسال بريد تجريبي',
+    'mail.testOk': 'تم إرسال البريد التجريبي — تحقق من الوارد والبريد المزعج',
     'auth.username': 'اسم المستخدم',
     'auth.usernameHint': 'من 3 إلى 20 حرفًا: أحرف لاتينية صغيرة وأرقام وشرطة سفلية.',
     'auth.passwordHint': '8 أحرف على الأقل.',
@@ -185,6 +203,8 @@ export const authExtra = {
     'auth.resetSent': 'إن كان الحساب موجودًا فسيصلك رابط إعادة التعيين.',
   },
   ko: {
+    'mail.test': '테스트 이메일 보내기',
+    'mail.testOk': '테스트 이메일을 보냈습니다 — 받은편지함과 스팸을 확인하세요',
     'auth.username': '사용자 이름',
     'auth.usernameHint': '3–20자: 소문자, 숫자, 밑줄.',
     'auth.passwordHint': '8자 이상.',
@@ -205,6 +225,8 @@ export const authExtra = {
     'auth.resetSent': '해당 계정이 있다면 재설정 링크가 발송되었습니다.',
   },
   ja: {
+    'mail.test': 'テストメールを送信',
+    'mail.testOk': 'テストメールを送信しました — 受信トレイと迷惑メールをご確認ください',
     'auth.username': 'ユーザー名',
     'auth.usernameHint': '3〜20文字：小文字の英字、数字、アンダースコア。',
     'auth.passwordHint': '8文字以上。',

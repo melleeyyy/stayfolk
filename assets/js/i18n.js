@@ -150,6 +150,9 @@ const en = {
   'auth.resetTitle': 'Choose a new password',
   'auth.resetSent': 'If that account exists, a reset link is on its way.',
 
+  'mail.test': 'Send test email',
+  'mail.testOk': 'Test email sent — check your inbox and spam',
+
   'auth.loginTitle': 'Welcome back',
   'auth.loginSub': 'Log in to manage requests and messages.',
   'auth.signupTitle': 'Join StayFolk',

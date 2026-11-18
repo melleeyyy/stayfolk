@@ -395,6 +395,12 @@ document.addEventListener('click', async (e) => {
       go(`/messages/${thread.id}`);
       break;
     }
+    case 'test-email': {
+      const res = await store.sendTestEmail();
+      if (res.ok) toast(t('mail.testOk'));
+      else toast(`${res.provider}: ${res.error}`, 'error');
+      break;
+    }
     case 'resend-verification': {
       try {
         await store.resendVerification();
