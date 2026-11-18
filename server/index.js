@@ -811,6 +811,7 @@ const server = http.createServer(async (req, res) => {
   server.listen(PORT, () => {
     console.log(`StayFolk running → http://localhost:${PORT}`);
     console.log(`Database: ${DB_FILE}`);
+    console.log(`Mail: ${mailer.provider()}${mailer.isConfigured() ? ' (configured)' : ' (links go to this log)'}`);
   });
 })();
 
