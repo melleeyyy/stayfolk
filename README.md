@@ -22,9 +22,12 @@ StayFolk is a fully working product demo of a Couchsurfing-style community: free
 | **Messaging** | Threaded conversations opened from a request or a response |
 | **Moderation console** | Report queue, ID-verification queue, member list, resolve / ban actions |
 | **Safety centre** | Trust model, reporting, emergency guidance |
+| **Form C checklist** | Step-by-step FRRO / police reporting flow for hosts taking foreign guests in India, with saved progress and a printable checklist |
 | **Auth** | Sign up, log in, session persistence — all local, no server needed |
 | **12 languages** | English (default), Hindi, Malayalam, Tamil, French, Spanish, German, Portuguese, Russian, Arabic (full RTL), Korean, Japanese |
 | **Themes** | Light and dark, remembered between visits |
+| **Photo upload** | Hosts replace their cover and avatar; images are downscaled in the browser and stored locally |
+| **Installable PWA** | Web app manifest, offline app shell and an install prompt in the header |
 
 ## Tech
 
@@ -32,6 +35,7 @@ StayFolk is a fully working product demo of a Couchsurfing-style community: free
 - **Hash router** (`#/host/h1`) so it deploys to GitHub Pages with no server rewrites.
 - **localStorage store** mirroring the REST API shape, so swapping in the real backend is a matter of replacing one module.
 - **Inline SVG imagery** — covers and avatars are generated data-URIs from the brand palette. Zero external image or font requests; the site works offline.
+- **Installable PWA** — a service worker caches the app shell, so the demo opens offline and installs to a home screen.
 - **Node reference API** in `server/` — zero dependencies, scrypt password hashing, JSON persistence.
 
 ## Brand palette
@@ -75,17 +79,22 @@ Or sign up — new accounts are stored in your browser only.
 
 ```
 index.html                 app shell
+manifest.webmanifest       PWA metadata, icons, shortcuts
+sw.js                      service worker (offline app shell)
 assets/css/app.css         design system + all components
+assets/img/                brand mark and generated PWA icons
 assets/js/
-  app.js                   router, chrome, delegated events, toasts
+  app.js                   router, chrome, delegated events, toasts, PWA
   views.js                 every screen as a pure render function
-  store.js                 localStorage state (users, requests, threads…)
+  store.js                 localStorage state (users, requests, photos…)
   data.js                  24 hosts, 18 cities, reviews, seed data
   i18n.js                  English source strings + t()
   locales.js               11 translated locales
+  locales-extra.js         strings added after v1, merged into the same tables
   media.js                 generated SVG covers and avatars
 server/index.js            zero-dependency reference API
-test/e2e.js                headless-Chromium smoke test (32 checks)
+test/e2e.js                headless-Chromium smoke test (37 checks)
+test/audit.js              layout audit: overflow, clipping, contrast, tap targets
 ```
 
 ## Tests
@@ -94,7 +103,13 @@ test/e2e.js                headless-Chromium smoke test (32 checks)
 node test/e2e.js
 ```
 
-Drives the real site in headless Chromium: every route, all 12 locales, filters, login, request → accept → message, admin resolution, dark mode and mobile overflow. 32/32 passing.
+Drives the real site in headless Chromium: every route, all 12 locales, filters, login, request → accept → message, admin resolution, photo upload, the Form C tracker, dark mode and mobile overflow. **37/37 passing.**
+
+```bash
+node test/audit.js
+```
+
+Loads nine routes at four viewports and reports horizontal overflow, elements outside the viewport, clipped text, header collisions, low-contrast text and undersized tap targets. Used to catch the layout defects fixed in this release.
 
 ## Deploying to GitHub Pages
 

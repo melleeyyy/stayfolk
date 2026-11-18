@@ -45,12 +45,20 @@ const ICONS = {
 };
 
 export function icon(name, cls = '') {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-    stroke-linecap="round" stroke-linejoin="round" class="${cls}" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+  // width/height are attributes so an icon can never inherit a container width;
+  // CSS rules with a selector still override them where a different size is needed.
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+    class="icon ${cls}" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
 }
 
 const stars = (rating) =>
   `<span class="rating">${icon('star')}${Number(rating).toFixed(1)}</span>`;
+
+/* Uploaded photos override the generated artwork when a host has added one. */
+const coverFor = (host, w, h) => store.photoFor(host.id, 'cover') || cover('cover-' + host.id, w, h);
+const avatarFor = (host, cls = '') =>
+  `<img class="avatar ${cls}" src="${store.photoFor(host.id, 'avatar') || avatar(host.name, host.id)}" alt="${esc(host.name)}" />`;
 
 function accentTitle(str) {
   let i = 0;
@@ -74,7 +82,7 @@ export function hostCard(host) {
   return `
   <a class="host-card" href="#/host/${host.id}">
     <div class="host-card__media">
-      <img src="${cover(host.id)}" alt="" loading="lazy" width="800" height="600" />
+      <img src="${coverFor(host, 800, 600)}" alt="" loading="lazy" width="800" height="600" />
       <div class="host-card__badges">
         ${host.verified ? `<span class="badge badge--glass">${icon('shield')}${esc(t('host.verified'))}</span>` : ''}
         ${host.womenOnly ? `<span class="badge badge--glass">${esc(t('host.women'))}</span>` : ''}
@@ -270,7 +278,7 @@ export function exploreView(q = {}) {
   <div class="page-head">
     <div class="container">
       <h1>${esc(t('search.title'))}</h1>
-      <p class="lede">${esc(t('search.results', { n: list.length }))}</p>
+      <p class="lede">${esc(t('search.noneHint'))}</p>
     </div>
   </div>
 
@@ -303,24 +311,25 @@ export function exploreView(q = {}) {
           </select>
         </div>
         <div class="filter-group">
-          <span class="label">${esc(t('search.verified'))}</span>
           <label class="check"><input type="checkbox" name="verified" ${verified ? 'checked' : ''} />${esc(t('search.verified'))}</label>
           <label class="check"><input type="checkbox" name="women" ${women ? 'checked' : ''} />${esc(t('search.women'))}</label>
         </div>
-        <div class="filter-group">
-          <label class="label" for="f-sort">${esc(t('search.sort'))}</label>
-          <select class="select" id="f-sort" name="sort">
-            <option value="rating" ${sort === 'rating' ? 'selected' : ''}>${esc(t('search.sortRating'))}</option>
-            <option value="response" ${sort === 'response' ? 'selected' : ''}>${esc(t('search.sortResponse'))}</option>
-            <option value="new" ${sort === 'new' ? 'selected' : ''}>${esc(t('search.sortNew'))}</option>
-          </select>
-        </div>
+        <input type="hidden" name="sort" value="${esc(sort)}" />
       </form>
     </aside>
 
     <div>
       <div class="results-head">
-        <p class="small muted">${esc(t('search.results', { n: list.length }))}</p>
+        <p class="small muted" style="margin:0">${esc(t('search.results', { n: list.length }))}</p>
+        <label class="row" style="gap:8px">
+          <span class="tiny muted">${esc(t('search.sort'))}</span>
+          <select class="select" id="sort-select" aria-label="${esc(t('search.sort'))}"
+            style="height:38px;width:auto;min-width:168px;font-size:.88rem">
+            <option value="rating" ${sort === 'rating' ? 'selected' : ''}>${esc(t('search.sortRating'))}</option>
+            <option value="response" ${sort === 'response' ? 'selected' : ''}>${esc(t('search.sortResponse'))}</option>
+            <option value="new" ${sort === 'new' ? 'selected' : ''}>${esc(t('search.sortNew'))}</option>
+          </select>
+        </label>
       </div>
       ${list.length
         ? `<div class="grid grid--hosts">${list.map(hostCard).join('')}</div>`
@@ -347,9 +356,9 @@ export function hostView(id) {
       <a href="#/city/${host.citySlug}">${esc(city ? city.name : '')}</a>${icon('chevron')}
       <span>${esc(host.name)}</span>
     </div>
-    <div class="profile-cover"><img src="${cover('cover-' + host.id, 1200, 400)}" alt="" /></div>
+    <div class="profile-cover"><img src="${coverFor(host, 1200, 400)}" alt="" /></div>
     <div class="profile-head">
-      <img class="avatar avatar--xl" src="${avatar(host.name, host.id)}" alt="${esc(host.name)}" />
+      ${avatarFor(host, 'avatar--xl')}
       <div style="flex:1;min-width:200px;padding-bottom:8px">
         <h1 style="font-size:clamp(1.6rem,3vw,2.1rem);margin-bottom:8px">${esc(host.name)}</h1>
         <div class="row row--wrap" style="gap:8px">
@@ -662,15 +671,45 @@ export function dashboardView(tab = 'requests') {
 
       ${tab === 'profile' ? `
         <div class="card">
-          <h3 style="margin-bottom:14px">${esc(t('dash.profile'))}</h3>
+          <div class="row row--between" style="margin-bottom:16px">
+            <h3>${esc(t('dash.profile'))}</h3>
+            ${host ? `<a class="btn btn--outline btn--sm" href="#/host/${host.id}">${icon('eye')}${esc(t('nav.profile'))}</a>` : ''}
+          </div>
           ${host ? `
-            <div class="row" style="gap:16px;margin-bottom:16px">
-              <img class="avatar avatar--lg" src="${avatar(host.name, host.id)}" alt="" />
-              <div><strong>${esc(host.name)}</strong><div class="small muted">${esc(host.space)}</div></div>
-              <span class="spacer"></span>
-              <a class="btn btn--outline btn--sm" href="#/host/${host.id}">${icon('eye')}${esc(t('nav.profile'))}</a>
+            <div class="uploader" style="margin-bottom:20px">
+              <div class="photo-block">
+                <span class="label">${esc(t('upload.cover'))}</span>
+                <div class="photo-preview photo-preview--cover">
+                  <img src="${coverFor(host, 900, 300)}" alt="" />
+                </div>
+                <div class="upload-actions">
+                  <label class="btn btn--outline btn--sm file-btn">
+                    ${icon('plus')}${esc(t('upload.change'))}
+                    <input type="file" accept="image/*" data-photo="cover" data-host="${host.id}" />
+                  </label>
+                  ${store.photoFor(host.id, 'cover') ? `<button class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="cover" data-host="${host.id}">${esc(t('upload.remove'))}</button>` : ''}
+                </div>
+              </div>
+              <div class="photo-block">
+                <span class="label">${esc(t('upload.photo'))}</span>
+                <div class="photo-preview photo-preview--avatar">
+                  <img src="${store.photoFor(host.id, 'avatar') || avatar(host.name, host.id)}" alt="" />
+                </div>
+                <div class="upload-actions">
+                  <label class="btn btn--outline btn--sm file-btn">
+                    ${icon('plus')}${esc(t('upload.change'))}
+                    <input type="file" accept="image/*" data-photo="avatar" data-host="${host.id}" />
+                  </label>
+                  ${store.photoFor(host.id, 'avatar') ? `<button class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="avatar" data-host="${host.id}">${esc(t('upload.remove'))}</button>` : ''}
+                </div>
+              </div>
+              <p class="tiny muted">${esc(t('upload.hint'))}</p>
             </div>
-            <p class="small">${esc(host.bio)}</p>
+            <hr class="divider" />
+            <p class="small" style="margin-top:14px">${esc(host.bio)}</p>
+            <div class="row" style="gap:8px;margin-top:16px;flex-wrap:wrap">
+              <a class="btn btn--outline btn--sm" href="#/form-c">${icon('shield')}${esc(t('nav.formc'))}</a>
+            </div>
           ` : `<p class="small muted">${esc(t('dash.empty'))}</p>`}
         </div>`
       : `<div class="stack" style="gap:14px">
@@ -809,6 +848,72 @@ export function adminView(tab = 'reports') {
           </tr>`).join('')}
         </tbody>
       </table></div></div>`}
+  </div>`;
+}
+
+/* ---------------------------------------------------------------- form c */
+
+export function formCView() {
+  const state = store.formCState();
+  const steps = [1, 2, 3, 4, 5];
+  const done = steps.filter((n) => state[`step${n}`]).length;
+  const pct = Math.round((done / steps.length) * 100);
+
+  return `
+  <div class="page-head"><div class="container">
+    <span class="eyebrow">${icon('shield')}India · foreign guests</span>
+    <h1 style="margin-top:12px">${esc(t('formc.title'))}</h1>
+    <p class="lede" style="max-width:70ch">${esc(t('formc.sub'))}</p>
+  </div></div>
+
+  <div class="container" style="padding-block:32px 72px">
+    <div class="formc-layout">
+      <div>
+        <div class="card" style="margin-bottom:18px">
+          <div class="row row--between" style="margin-bottom:10px">
+            <strong>${esc(t('formc.progress', { n: pct }))}</strong>
+            <span class="small muted">${done}/${steps.length}</span>
+          </div>
+          <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
+          <div class="row row--wrap" style="gap:8px;margin-top:16px">
+            <button class="btn btn--outline btn--sm" data-action="print">${icon('eye')}${esc(t('formc.print'))}</button>
+            <button class="btn btn--ghost btn--sm" data-action="reset-formc">${esc(t('formc.reset'))}</button>
+          </div>
+        </div>
+
+        <div class="checklist">
+          ${steps.map((n) => `
+            <label class="check-item ${state[`step${n}`] ? 'is-done' : ''}">
+              <input class="check-toggle" type="checkbox" data-formc="step${n}" ${state[`step${n}`] ? 'checked' : ''} />
+              <span class="step-num">${state[`step${n}`] ? '✓' : n}</span>
+              <span class="check-item__body">
+                <h4>${esc(t(`formc.step${n}t`))}</h4>
+                <p>${esc(t(`formc.step${n}d`))}</p>
+              </span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <aside class="stack" style="gap:16px">
+        <div class="card">
+          <h4 style="display:flex;align-items:center;gap:9px;margin-bottom:8px">${icon('calendar')}${esc(t('formc.deadline'))}</h4>
+          <p class="small">${esc(t('formc.who'))}</p>
+        </div>
+        <div class="card">
+          <h4 style="display:flex;align-items:center;gap:9px;margin-bottom:8px">${icon('lock')}${esc(t('formc.keep'))}</h4>
+          <ul class="stack" style="gap:8px">
+            ${['Passport number and nationality', 'Visa type, number and expiry', 'Arrival and departure dates', 'Your full address and phone']
+              .map((x) => `<li class="row small" style="gap:9px;align-items:flex-start">${icon('check')}<span>${esc(x)}</span></li>`).join('')}
+          </ul>
+        </div>
+        <div class="card" style="border-color:#F5DFB0;background:#FFF9EC">
+          <p class="small" style="color:#7A5200;margin:0">${esc(t('formc.note'))}</p>
+        </div>
+        <a class="btn btn--ink btn--block" href="https://indianfrro.gov.in/eservices/home.jsp" target="_blank" rel="noopener noreferrer">
+          ${esc(t('formc.portal'))}${icon('arrow')}
+        </a>
+      </aside>
+    </div>
   </div>`;
 }
 

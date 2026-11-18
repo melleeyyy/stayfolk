@@ -196,6 +196,37 @@ const en = {
   'footer.made': 'Built as a product demo.',
   'footer.rights': '© 2026 StayFolk. All rights reserved.',
 
+  'nav.formc': 'Form C checklist',
+  'pwa.install': 'Install app',
+  'pwa.installed': 'App installed',
+
+  'upload.photo': 'Profile photo',
+  'upload.cover': 'Cover photo',
+  'upload.change': 'Change',
+  'upload.remove': 'Remove',
+  'upload.hint': 'JPG or PNG up to 8 MB. Downscaled and stored in this browser only.',
+
+  'formc.title': 'Form C & FRRO checklist',
+  'formc.sub': 'If you host a foreign national in India you must report their arrival. This is the whole process, in order — tick each step as you go.',
+  'formc.note': 'Rules differ by state and change over time. Confirm with your local FRO before your first international guest. This is guidance, not legal advice.',
+  'formc.progress': '{n}% complete',
+  'formc.print': 'Print checklist',
+  'formc.portal': 'Open the e-FRRO portal',
+  'formc.reset': 'Reset',
+  'formc.deadline': 'Within 24 hours',
+  'formc.who': 'The host reports the arrival, not the guest. Hotels file Form C; private hosts normally report in person at the FRO or the local police station.',
+  'formc.keep': 'Keep these details',
+  'formc.step1t': 'Collect passport and visa details before they arrive',
+  'formc.step1d': 'Photograph the passport photo page and the visa page. Note the passport number, nationality, visa type and expiry date.',
+  'formc.step2t': 'Report the arrival within 24 hours',
+  'formc.step2d': 'File Form C at your nearest FRO/FRRO, or report to the local police station if your district has none. Keep the acknowledgement slip.',
+  'formc.step3t': 'Keep a guest register',
+  'formc.step3d': 'Record name, nationality, passport number, visa number, your address and the exact arrival and departure dates. Inspectors can ask to see it.',
+  'formc.step4t': 'Check whether your guest must register separately',
+  'formc.step4d': 'Most tourist visas need no extra registration, but student, employment, medical and long-stay visas usually do. The guest registers, not you — remind them on day one.',
+  'formc.step5t': 'Close the record when they leave',
+  'formc.step5d': 'Note the departure date in your register and, if your FRO asked for it, intimate the departure the same way you reported the arrival.',
+
   'common.save': 'Save',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
@@ -205,8 +236,13 @@ const en = {
 };
 
 import { locales } from './locales.js';
+import { extra } from './locales-extra.js';
 
-export const DICT = { en, ...locales };
+const merged = Object.fromEntries(
+  Object.entries(locales).map(([code, table]) => [code, { ...table, ...(extra[code] || {}) }])
+);
+
+export const DICT = { en, ...merged };
 
 let current = 'en';
 

@@ -20,6 +20,8 @@ const defaults = () => ({
   reviews: [],
   reports: SEED_REPORTS.map((r) => ({ ...r })),
   verifications: SEED_VERIFICATIONS.map((r) => ({ ...r })),
+  photos: {},
+  formC: {},
   lang: 'en',
   theme: 'light',
 });
@@ -232,6 +234,42 @@ export function resolveVerification(id, status) {
       ? state.users.map((u) => (u.id === entry.userId ? { ...u, verified: true } : u))
       : state.users,
   });
+}
+
+/* ----------------------------------------------------------------- photos */
+
+/** Uploaded photos are stored as downscaled data URLs, keyed by host id. */
+export function photoFor(hostId, kind) {
+  const entry = state.photos && state.photos[hostId];
+  return entry ? entry[kind] || null : null;
+}
+
+export function setPhoto(hostId, kind, dataUrl) {
+  const photos = { ...(state.photos || {}) };
+  photos[hostId] = { ...(photos[hostId] || {}), [kind]: dataUrl };
+  commit({ photos });
+}
+
+export function clearPhoto(hostId, kind) {
+  const photos = { ...(state.photos || {}) };
+  if (photos[hostId]) {
+    const next = { ...photos[hostId] };
+    delete next[kind];
+    photos[hostId] = next;
+  }
+  commit({ photos });
+}
+
+/* ------------------------------------------------------ Form C checklist */
+
+export const formCState = () => state.formC || {};
+
+export function toggleFormC(stepId, done) {
+  commit({ formC: { ...(state.formC || {}), [stepId]: Boolean(done) } });
+}
+
+export function resetFormC() {
+  commit({ formC: {} });
 }
 
 /* ------------------------------------------------------------ preferences */

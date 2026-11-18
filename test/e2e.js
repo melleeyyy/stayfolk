@@ -64,7 +64,7 @@ const check = (name, ok, detail = '') => {
   const routes = [
     ['#/', 'Travel like a'], ['#/explore', 'hosts available'], ['#/cities', 'Kochi'],
     ['#/city/kochi', 'Kochi'], ['#/host/h1', 'Ananya Menon'], ['#/how', 'How StayFolk works'],
-    ['#/safety', 'Safety centre'], ['#/login', 'Welcome back'], ['#/signup', 'Join StayFolk'],
+    ['#/safety', 'Safety centre'], ['#/form-c', 'Form C'], ['#/login', 'Welcome back'], ['#/signup', 'Join StayFolk'],
     ['#/dashboard', 'Welcome back'], ['#/admin', 'Welcome back'], ['#/messages', 'Welcome back'],
   ];
   for (const [hash, needle] of routes) {
@@ -72,6 +72,22 @@ const check = (name, ok, detail = '') => {
     const body = await text();
     check(`route ${hash}`, body.includes(needle), body.slice(0, 40).replace(/\n/g, ' '));
   }
+
+  /* --- 1b. icon sizing regression guard --- */
+  await go('#/');
+  const hugeIcons = await page.evaluate(() =>
+    [...document.querySelectorAll('svg.icon')]
+      .map((s) => s.getBoundingClientRect())
+      .filter((r) => r.width > 48 || r.height > 48).length);
+  check('no oversized icons', hugeIcons === 0, `${hugeIcons} oversized`);
+
+  /* --- 1c. Form C checklist --- */
+  await go('#/form-c');
+  const beforePct = await page.evaluate(() => document.querySelector('.progress__bar').style.width);
+  await page.click('input[data-formc="step1"]');
+  await new Promise((r) => setTimeout(r, 350));
+  const afterPct = await page.evaluate(() => document.querySelector('.progress__bar').style.width);
+  check('Form C progress advances', afterPct !== beforePct, `${beforePct} → ${afterPct}`);
 
   /* --- 2. language switching --- */
   await go('#/');
@@ -178,6 +194,31 @@ const check = (name, ok, detail = '') => {
   await new Promise((r) => setTimeout(r, 400));
   const rowsAfter = await page.$$eval('.admin-table tbody tr', (els) => els.length);
   check('resolve report removes it from queue', rowsAfter < reportRows, `${reportRows} → ${rowsAfter}`);
+
+  /* --- 8b. photo upload --- */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(BASE + '/#/login', { waitUntil: 'networkidle2' });
+  await new Promise((r) => setTimeout(r, 300));
+  await page.type('#a-email', 'host@stayfolk.demo');
+  await page.type('#a-pass', 'demo1234');
+  await page.click('#auth-form button[type="submit"]');
+  await new Promise((r) => setTimeout(r, 400));
+  await go('#/dashboard/profile');
+  const fileInput = await page.$('input[type="file"][data-photo="avatar"]');
+  if (fileInput) {
+    await fileInput.uploadFile(path.join(__dirname, 'upload-sample.png'));
+    await new Promise((r) => setTimeout(r, 900));
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('stayfolk.v1')).photos);
+    check('photo upload persists', Boolean(stored && stored.h1 && stored.h1.avatar), JSON.stringify(Object.keys(stored || {})));
+    await go('#/host/h1');
+    const usesPhoto = await page.evaluate(() => {
+      const img = document.querySelector('.profile-head img.avatar');
+      return img && img.getAttribute('src').startsWith('data:image');
+    });
+    check('uploaded avatar shown on profile', usesPhoto === true);
+  } else {
+    check('photo upload persists', false, 'file input not found');
+  }
 
   /* --- 9. dark theme + screenshots --- */
   await page.evaluate(() => localStorage.clear());

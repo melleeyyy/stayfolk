@@ -51,6 +51,10 @@ function headerHTML() {
         </select>
       </label>
 
+      <button class="btn btn--outline btn--sm install-btn" data-action="install-app">
+        ${icon('plus')}${esc(t('pwa.install'))}
+      </button>
+
       <button class="icon-btn hide-sm" data-action="toggle-theme" title="${esc(t('nav.theme'))}" aria-label="${esc(t('nav.theme'))}">
         ${icon(theme === 'dark' ? 'sun' : 'moon')}
       </button>
@@ -76,6 +80,7 @@ function headerHTML() {
     ${user ? `<a href="#/dashboard">${esc(t('nav.dashboard'))}</a><a href="#/messages">${esc(t('nav.messages'))}</a>` : ''}
     ${user && user.role === 'admin' ? `<a href="#/admin">${esc(t('nav.admin'))}</a>` : ''}
     <div class="mobile-nav__actions">
+      <button class="btn btn--outline btn--block install-btn" data-action="install-app">${icon('plus')}${esc(t('pwa.install'))}</button>
       ${user
         ? `<button class="btn btn--outline btn--block" data-action="logout">${esc(t('nav.logout'))}</button>`
         : `<a class="btn btn--outline btn--block" href="#/login">${esc(t('nav.login'))}</a>
@@ -102,6 +107,7 @@ function footerHTML() {
       <div class="footer-col">
         <h5>${esc(t('footer.support'))}</h5>
         <a href="#/safety">${esc(t('nav.safety'))}</a>
+        <a href="#/form-c">${esc(t('nav.formc'))}</a>
         <a href="#/signup">${esc(t('cta.host'))}</a>
         <a href="mailto:hello@stayfolk.example">${esc(t('footer.contact'))}</a>
       </div>
@@ -178,6 +184,10 @@ function route() {
     case 'safety':
       html = V.safetyView();
       title = `${t('nav.safety')} — StayFolk`;
+      break;
+    case 'form-c':
+      html = V.formCView();
+      title = `${t('formc.title')} — StayFolk`;
       break;
     case 'login':
       html = V.authView('login');
@@ -315,6 +325,32 @@ document.addEventListener('click', (e) => {
       go('/explore');
       break;
     }
+    case 'print': {
+      window.print();
+      break;
+    }
+    case 'reset-formc': {
+      store.resetFormC();
+      route();
+      break;
+    }
+    case 'clear-photo': {
+      store.clearPhoto(el.dataset.host, el.dataset.kind);
+      route();
+      break;
+    }
+    case 'install-app': {
+      if (!deferredPrompt) {
+        toast(t('pwa.installed'));
+        return;
+      }
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.finally(() => {
+        deferredPrompt = null;
+        syncInstall();
+      });
+      break;
+    }
     case 'respond': {
       store.respondRequest(el.dataset.id, el.dataset.status);
       toast(el.dataset.status === 'accepted' ? t('dash.accepted') : t('dash.declined'));
@@ -378,9 +414,72 @@ document.addEventListener('change', (e) => {
     route();
     return;
   }
+  if (e.target.id === 'sort-select') {
+    const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+    if (e.target.value === 'rating') params.delete('sort');
+    else params.set('sort', e.target.value);
+    const qs = params.toString();
+    go(`/explore${qs ? '?' + qs : ''}`);
+    return;
+  }
+
+  const formcBox = e.target.closest('input[data-formc]');
+  if (formcBox) {
+    store.toggleFormC(formcBox.dataset.formc, formcBox.checked);
+    route();
+    return;
+  }
+
+  const photoInput = e.target.closest('input[type="file"][data-photo]');
+  if (photoInput) {
+    handlePhoto(photoInput);
+    return;
+  }
+
   const filters = e.target.closest('#filters-form');
   if (filters) applyFilters(filters);
 });
+
+/* Downscale before storing so a 12 MP phone photo cannot blow the quota. */
+function readImage(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('decode failed'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePhoto(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) return toast(t('upload.hint'), 'error');
+  if (file.size > 8 * 1024 * 1024) return toast(t('upload.hint'), 'error');
+
+  try {
+    const kind = input.dataset.photo;
+    const dataUrl = await readImage(file, kind === 'avatar' ? 640 : 1600);
+    store.setPhoto(input.dataset.host, kind, dataUrl);
+    toast(t('upload.change'));
+    route();
+  } catch {
+    toast(t('upload.hint'), 'error');
+  }
+}
 
 function applyFilters(form) {
   const fd = new FormData(form);
@@ -506,6 +605,28 @@ window.addEventListener('hashchange', route);
 
 /* ------------------------------------------------------------------ boot */
 
+/* ------------------------------------------------------------------- pwa */
+
+let deferredPrompt = null;
+
+function syncInstall() {
+  document.querySelectorAll('.install-btn').forEach((b) => {
+    b.classList.toggle('is-visible', Boolean(deferredPrompt));
+  });
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  syncInstall();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  syncInstall();
+  toast(t('pwa.installed'));
+});
+
 function boot() {
   const s = store.get();
   setLang(s.lang || 'en');
@@ -514,6 +635,15 @@ function boot() {
 
   if (!location.hash) location.hash = '#/';
   route();
+  syncInstall();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {
+        /* offline support is a bonus, never a blocker */
+      });
+    });
+  }
 
   if (import.meta.env && import.meta.env.DEV) {
     const missing = missingKeys();
