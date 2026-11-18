@@ -42,6 +42,7 @@ let syncSince = new Date().toISOString();
 const listeners = new Set();
 
 export const isRemote = () => mode === 'remote';
+export const mailConfigured = () => state.mailConfigured !== false;
 export const get = () => state;
 export const hosts = () => (state.hosts && state.hosts.length ? state.hosts : HOSTS);
 export const hostById = (id) => hosts().find((h) => h.id === id) || null;
@@ -96,6 +97,7 @@ function fromBootstrap(boot) {
     threads: boot.threads || [],
     messages: boot.messages || [],
     reviews: boot.reviews || [],
+    mailConfigured: boot.mail ? Boolean(boot.mail.configured) : true,
     reports: [],
     verifications: [],
     photos: {},

@@ -739,7 +739,7 @@ export function dashboardView(tab = 'requests') {
         ${user.verified ? `<span class="badge badge--verified">${icon('shield')}${esc(t('dash.verified'))}</span>` : ''}
       </div>
 
-      ${!user.emailVerified && store.isRemote() ? `
+      ${!user.emailVerified && store.isRemote() && store.mailConfigured() ? `
         <div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:22px;border-color:#F5DFB0;background:#FFF9EC">
           ${icon('lock')}
           <div style="flex:1;min-width:200px">

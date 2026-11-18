@@ -21,7 +21,15 @@ services:
       # https://<service>.onrender.com address after the first deploy
       - key: PUBLIC_URL
         sync: false
-      # pick one mail provider (both are free); leave both empty to log links
+      # pick one mail route (all free); leave them empty to log links instead
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
       - key: BREVO_API_KEY
         sync: false
       - key: RESEND_API_KEY

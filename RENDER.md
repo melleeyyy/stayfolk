@@ -28,7 +28,10 @@ Open the service → **Environment** → **Add Environment Variable**.
 |---|---|---|
 | `PUBLIC_URL` | `https://your-service.onrender.com` | Verification and password-reset emails need an absolute link. Without this they point at `localhost`. |
 | `NODE_ENV` | `production` | Makes the session cookie `Secure`. |
-| `MAIL_FROM` | `StayFolk <you@yourdomain.com>` | The sender address your email provider has verified. |
+| `MAIL_FROM` | `StayFolk <you@gmail.com>` | The sender address your email provider has verified. |
+
+Optional, only when you want real emails (see step 3): `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASS` for Gmail, or `BREVO_API_KEY` / `RESEND_API_KEY`.
 
 Copy the exact URL Render shows at the top of the service page — no trailing slash.
 
@@ -39,10 +42,35 @@ Copy the exact URL Render shows at the top of the service page — no trailing s
 Without a provider the site still works: signup and password reset succeed, but
 the email is only printed to the Render log. To actually deliver it, pick one.
 
-### Option A — Brevo (recommended: 300 emails/day free, no domain needed)
+### Option A — your own Gmail (no third-party signup)
+
+Gmail sends up to ~500 messages a day for free and needs no domain.
+
+1. In your Google Account, open **Security** and turn on **2-Step Verification**.
+2. Still under Security, open **App passwords**
+   (<https://myaccount.google.com/apppasswords>).
+3. Create one named `StayFolk` and copy the **16-character password** it shows.
+   This is not your normal Gmail password — it is a one-off app password.
+4. In Render add:
+
+```
+SMTP_HOST = smtp.gmail.com
+SMTP_PORT = 465
+SMTP_USER = your.address@gmail.com
+SMTP_PASS = the 16-character app password, no spaces
+MAIL_FROM = StayFolk <your.address@gmail.com>
+```
+
+Gmail sometimes files the first message under **Spam** — check there, and mark
+it "not spam" so the next ones land in the inbox.
+
+*App passwords are unavailable on some Google Workspace accounts (an admin can
+switch them off). If the menu is missing, use Option B or C.*
+
+### Option B — Brevo (300 emails/day free)
 
 1. Create a free account at <https://www.brevo.com>.
-2. **Senders & IP → Senders → Add a sender** and verify your own email address.
+2. **Senders & IP → Senders → Add a sender** and verify your email address.
 3. **SMTP & API → API Keys → Generate a new API key** (v3).
 4. In Render add:
 
@@ -51,10 +79,10 @@ BREVO_API_KEY = xkeysib-...
 MAIL_FROM     = StayFolk <your-verified-sender@example.com>
 ```
 
-### Option B — Resend (3,000 emails/month free, needs a domain to send anywhere)
+### Option C — Resend (3,000 emails/month free, needs a domain)
 
 1. Create a free account at <https://resend.com>.
-2. Add and verify your domain, or use `onboarding@resend.dev` to email yourself only.
+2. Add and verify your domain.
 3. **API Keys → Create**.
 4. In Render add:
 
@@ -65,7 +93,8 @@ MAIL_FROM      = StayFolk <hello@yourdomain.com>
 
 Redeploy after adding variables (Render does this automatically when you save).
 
----
+**No email at all?** That is fine — leave every mail variable empty. The app
+detects it and stops nagging users to verify; accounts work normally.
 
 ## 4. Keep the data (read this before inviting people)
 
@@ -118,7 +147,9 @@ readable message.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Verification link goes to `localhost` | `PUBLIC_URL` not set | Set it and redeploy |
-| Email never arrives, no error | No mail provider configured | Add `BREVO_API_KEY` or `RESEND_API_KEY` |
+| Email never arrives, no error | No mail provider configured | Add the SMTP variables, `BREVO_API_KEY` or `RESEND_API_KEY` |
+| Gmail says "535 authentication failed" | Using the normal password | Use the 16-character **app password**, and 2-Step Verification must be on |
+| Verification email lands in spam | Gmail sending on your behalf | Mark it "not spam"; the next ones usually arrive |
 | "email failed" in the log | Sender not verified at the provider | Verify the sender, match `MAIL_FROM` exactly |
 | Accounts vanish after a restart | Free plan has no persistent disk | See step 4 |
 | Site sleeps after 15 minutes | Free plan behaviour | First request after that takes ~30s to wake |

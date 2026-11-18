@@ -352,8 +352,9 @@ function messagesForThreads(threads) {
 
 function bootstrapFor(user) {
   const hosts = allHosts();
+  const mail = { configured: mailer.isConfigured(), provider: mailer.provider() };
   if (!user) {
-    return { me: null, hosts, requests: [], threads: [], messages: [], reviews: db.reviews.slice(-60) };
+    return { me: null, hosts, requests: [], threads: [], messages: [], reviews: db.reviews.slice(-60), mail };
   }
   const myHostId = user.hosting && user.hosting.enabled ? user.id : null;
   const requests = db.requests.filter((r) => r.userId === user.id || (myHostId && r.hostId === myHostId));
@@ -365,6 +366,7 @@ function bootstrapFor(user) {
     threads,
     messages: messagesForThreads(threads),
     reviews: db.reviews.slice(-60),
+    mail,
   };
 }
 
@@ -377,7 +379,10 @@ async function handleApi(req, res, url) {
 
   if (method === 'OPTIONS') return json(res, 204, {});
   if (pathname === '/api/health') {
-    return json(res, 200, { ok: true, users: db.users.length, messages: db.messages.length });
+    return json(res, 200, {
+      ok: true, users: db.users.length, messages: db.messages.length,
+      mail: mailer.provider(),
+    });
   }
 
   /* ---- auth ---- */

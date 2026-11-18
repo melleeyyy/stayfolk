@@ -71,7 +71,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await signUp(A, 'Anjali Nair', 'anjali_nair', 'anjali@example.com', 'Kochi');
   const aBody = await A.evaluate(() => document.querySelector('#main').innerText);
   check('A signs up and lands on the dashboard', aBody.includes('Anjali Nair'), aBody.slice(0, 40).replace(/\n/g, ' '));
-  check('unverified banner is shown', aBody.includes('not verified'), aBody.slice(0, 80).replace(/\n/g, ' '));
+  // no mail provider is configured in the test, so the app must not nag
+  check('no verification nag without a mail provider', !aBody.includes('not verified'), aBody.slice(0, 60).replace(/\n/g, ' '));
 
   /* ---- 2. A completes a profile and turns hosting on ---- */
   await A.evaluate(() => { window.location.hash = '#/dashboard/profile'; });

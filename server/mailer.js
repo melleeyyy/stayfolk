@@ -1,33 +1,49 @@
 /**
  * StayFolk — mailer.
  *
- * Three modes, chosen by environment variables so the site works with or
- * without email configured:
+ * Four ways to send, picked automatically from the environment, so the site
+ * works with or without email configured:
  *
- *   BREVO_API_KEY=...     → Brevo HTTP API (free: 300 emails/day)
- *   RESEND_API_KEY=...    → Resend HTTP API (free: 3,000 emails/month)
- *   (neither)             → console mode: the link is printed to the server log
+ *   SMTP_HOST / SMTP_USER / SMTP_PASS   → any SMTP server (Gmail, Zoho, Outlook…)
+ *   BREVO_API_KEY                       → Brevo HTTP API
+ *   RESEND_API_KEY                      → Resend HTTP API
+ *   (none of the above)                 → console mode: links print to the log
  *
- * Both providers are called over HTTPS with fetch, so there is no SMTP client
- * to maintain and no dependency to install.
+ * The SMTP client below is written against the protocol directly, so there is
+ * still nothing to install. It supports implicit TLS (port 465), STARTTLS
+ * (port 587) and plain connections (used by the test server).
  */
 
 'use strict';
 
+const net = require('node:net');
+const tls = require('node:tls');
+const os = require('node:os');
+
 const FROM = process.env.MAIL_FROM || 'StayFolk <onboarding@resend.dev>';
 const FROM_EMAIL = (FROM.match(/<([^>]+)>/) || [null, FROM])[1];
 
+/* ------------------------------------------------------------------ mode */
+
+function smtpConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
 function provider() {
+  if (smtpConfigured()) return 'smtp';
   if (process.env.BREVO_API_KEY) return 'brevo';
   if (process.env.RESEND_API_KEY) return 'resend';
   return 'console';
 }
 
+const isConfigured = () => provider() !== 'console';
+
+/* --------------------------------------------------------------- content */
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/** A plain, readable email that survives every client. */
 function wrap(title, body, cta, link) {
   return `<!doctype html><html><body style="margin:0;background:#F7F8FA;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
   <div style="max-width:520px;margin:0 auto;padding:32px 20px">
@@ -44,6 +60,158 @@ function wrap(title, body, cta, link) {
   </div></body></html>`;
 }
 
+/* ------------------------------------------------------------------ smtp */
+
+/** Minimal line-oriented SMTP conversation over a socket. */
+class Session {
+  constructor(socket) {
+    this.socket = socket;
+    this.buf = '';
+    this.lines = [];
+    this.waiting = [];
+    this.dead = false;
+    this.onData = (d) => {
+      this.buf += d.toString('utf8');
+      this.pump();
+    };
+    this.onError = (err) => this.fail(err);
+    this.onClose = () => this.fail(new Error('connection closed'));
+    socket.on('data', this.onData);
+    socket.on('error', this.onError);
+    socket.on('close', this.onClose);
+  }
+
+  pump() {
+    let i;
+    while ((i = this.buf.indexOf('\r\n')) >= 0) {
+      const line = this.buf.slice(0, i);
+      this.buf = this.buf.slice(i + 2);
+      if (this.waiting.length) this.waiting.shift().resolve(line);
+      else this.lines.push(line);
+    }
+  }
+
+  fail(err) {
+    this.dead = true;
+    this.error = err;
+    while (this.waiting.length) this.waiting.shift().reject(err);
+  }
+
+  read() {
+    if (this.lines.length) return Promise.resolve(this.lines.shift());
+    if (this.dead) return Promise.reject(this.error || new Error('socket closed'));
+    return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }));
+  }
+
+  async reply() {
+    let line = await this.read();
+    const code = Number(line.slice(0, 3));
+    // multi-line replies (EHLO advertises its capabilities this way) must be
+    // joined, otherwise AUTH is never seen and Gmail rejects the message
+    let text = line.slice(4);
+    while (line.length > 3 && line[3] === '-') {
+      line = await this.read();
+      text += ' ' + line.slice(4);
+    }
+    return { code, text };
+  }
+
+  async cmd(command, expect = [200, 300]) {
+    if (command) this.socket.write(command + '\r\n');
+    const res = await this.reply();
+    if (!expect.some((c) => res.code >= c && res.code < c + 100)) {
+      throw new Error(`SMTP ${command ? command.split(' ')[0] : 'greeting'} failed: ${res.code} ${res.text}`);
+    }
+    return res;
+  }
+
+  detach() {
+    this.socket.removeListener('data', this.onData);
+    this.socket.removeListener('error', this.onError);
+    this.socket.removeListener('close', this.onClose);
+  }
+}
+
+function base64Lines(text) {
+  return Buffer.from(text, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n').trim();
+}
+
+function buildMessage({ to, subject, html, text }) {
+  const domain = FROM_EMAIL.split('@')[1] || 'stayfolk.local';
+  const headers = [
+    `From: ${FROM}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <${Date.now()}.${Math.random().toString(36).slice(2)}@${domain}>`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+  ];
+  return `${headers.join('\r\n')}\r\n\r\n${base64Lines(html || `<pre>${text || ''}</pre>`)}`;
+}
+
+async function smtpSend({ to, subject, html, text }) {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT) || 465;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const implicitTls = process.env.SMTP_SECURE
+    ? process.env.SMTP_SECURE !== 'false'
+    : port === 465;
+
+  const socket = implicitTls
+    ? tls.connect({ host, port, servername: host })
+    : net.connect({ host, port });
+
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+    socket.setTimeout(15000, () => reject(new Error('SMTP timeout')));
+  });
+
+  let session = new Session(socket);
+  await session.cmd(null, [200]); // greeting
+
+  const hostname = os.hostname() || 'stayfolk';
+  let res = await session.cmd(`EHLO ${hostname}`, [200]);
+  let capabilities = res.text.toLowerCase();
+
+  // upgrade to TLS when the server offers it and we are not already encrypted
+  if (!implicitTls && capabilities.includes('starttls')) {
+    await session.cmd('STARTTLS', [200]);
+    session.detach();
+    const secured = tls.connect({ socket, servername: host });
+    await new Promise((resolve, reject) => {
+      secured.once('secureConnect', resolve);
+      secured.once('error', reject);
+    });
+    session = new Session(secured);
+    res = await session.cmd(`EHLO ${hostname}`, [200]);
+    capabilities = res.text.toLowerCase();
+  }
+
+  if (capabilities.includes('auth')) {
+    await session.cmd('AUTH LOGIN', [300]);
+    await session.cmd(Buffer.from(user, 'utf8').toString('base64'), [300]);
+    await session.cmd(Buffer.from(pass, 'utf8').toString('base64'), [200]);
+  }
+
+  await session.cmd(`MAIL FROM:<${FROM_EMAIL}>`, [200]);
+  await session.cmd(`RCPT TO:<${to}>`, [200]);
+  await session.cmd('DATA', [300]);
+  socket.write(buildMessage({ to, subject, html, text }) + '\r\n.\r\n');
+  await session.cmd(null, [200]);
+  try {
+    await session.cmd('QUIT', [200]);
+  } catch {
+    /* the server may hang up immediately; the message is already accepted */
+  }
+  socket.end();
+}
+
+/* ------------------------------------------------------------------ http */
+
 async function post(url, headers, body) {
   const res = await fetch(url, {
     method: 'POST',
@@ -57,10 +225,8 @@ async function post(url, headers, body) {
   return res.json().catch(() => ({}));
 }
 
-/**
- * Send one email. Never throws into a request handler: a failed email must not
- * break a signup. Returns true when it was actually delivered.
- */
+/* ------------------------------------------------------------------ send */
+
 async function send({ to, subject, text, html }) {
   const mode = provider();
 
@@ -72,7 +238,9 @@ async function send({ to, subject, text, html }) {
   }
 
   try {
-    if (mode === 'brevo') {
+    if (mode === 'smtp') {
+      await smtpSend({ to, subject, html, text });
+    } else if (mode === 'brevo') {
       await post(
         'https://api.brevo.com/v3/smtp/email',
         { 'api-key': process.env.BREVO_API_KEY, accept: 'application/json' },
@@ -99,6 +267,8 @@ async function send({ to, subject, text, html }) {
   }
 }
 
+/* --------------------------------------------------------------- letters */
+
 const link = (base, path) => `${String(base || '').replace(/\/$/, '')}/#${path}`;
 
 function sendVerification({ baseUrl, to, name, token }) {
@@ -121,4 +291,4 @@ function sendPasswordReset({ baseUrl, to, name, token }) {
   });
 }
 
-module.exports = { send, sendVerification, sendPasswordReset, provider };
+module.exports = { send, sendVerification, sendPasswordReset, provider, isConfigured, smtpSend };
