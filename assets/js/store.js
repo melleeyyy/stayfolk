@@ -159,18 +159,20 @@ export async function login(email, password) {
   return user;
 }
 
-export async function signup({ name, email, password, city }) {
+export async function signup({ name, username, email, password, city }) {
   if (mode === 'remote') {
-    const { user } = await api.post('api/auth/signup', { name, email, password, city });
+    const res = await api.post('api/auth/signup', { name, username, email, password, city });
     await refresh();
-    return { user };
+    return { user: res.user, verificationEmailSent: res.verificationEmailSent };
   }
   const exists = state.users.some((u) => u.email.toLowerCase() === email.toLowerCase().trim());
   if (exists) return { error: 'exists' };
   const user = {
     id: `u_${Date.now().toString(36)}`,
     name: String(name).trim(),
+    username: String(username || '').trim().toLowerCase(),
     email: String(email).trim(),
+    emailVerified: true,
     password,
     role: 'guest',
     hostId: null,
@@ -188,6 +190,33 @@ export async function logout() {
     return;
   }
   commit({ session: null });
+}
+
+/* ------------------------------------------------- verification + reset */
+
+export async function verifyEmail(token) {
+  if (mode !== 'remote') return { ok: true };
+  return api.post('api/auth/verify', { token });
+}
+
+export async function resendVerification() {
+  if (mode !== 'remote') return { ok: true };
+  return api.post('api/auth/resend-verification', {});
+}
+
+export async function changePassword(current, next) {
+  if (mode !== 'remote') return { ok: true };
+  return api.post('api/me/password', { current, next });
+}
+
+export async function requestPasswordReset(email) {
+  if (mode !== 'remote') return { ok: true };
+  return api.post('api/auth/forgot', { email });
+}
+
+export async function resetPassword(token, password) {
+  if (mode !== 'remote') return { ok: true };
+  return api.post('api/auth/reset', { token, password });
 }
 
 /* --------------------------------------------------------------- profile */

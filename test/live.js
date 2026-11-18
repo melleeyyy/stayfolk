@@ -55,21 +55,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(900);
   };
 
-  const signUp = async (page, name, email, city) => {
+  const signUp = async (page, name, username, email, city, password = 'secret123') => {
     await page.goto(BASE + '/#/signup', { waitUntil: 'networkidle2' });
-    await sleep(400);
+    await sleep(500);
     await page.type('#a-name', name);
+    await page.type('#a-username', username);
     await page.type('#a-city', city);
     await page.type('#a-email', email);
-    await page.type('#a-pass', 'secret123');
+    await page.type('#a-pass', password);
     await page.click('#auth-form button[type="submit"]');
-    await sleep(900);
+    await sleep(1200);
   };
 
   /* ---- 1. account A ---- */
-  await signUp(A, 'Anjali Nair', 'anjali@example.com', 'Kochi');
+  await signUp(A, 'Anjali Nair', 'anjali_nair', 'anjali@example.com', 'Kochi');
   const aBody = await A.evaluate(() => document.querySelector('#main').innerText);
   check('A signs up and lands on the dashboard', aBody.includes('Anjali Nair'), aBody.slice(0, 40).replace(/\n/g, ' '));
+  check('unverified banner is shown', aBody.includes('not verified'), aBody.slice(0, 80).replace(/\n/g, ' '));
 
   /* ---- 2. A completes a profile and turns hosting on ---- */
   await A.evaluate(() => { window.location.hash = '#/dashboard/profile'; });
@@ -104,7 +106,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('A shows up in the host directory for B', seesAnjali);
 
   /* ---- 5. B signs up and sends a request ---- */
-  await signUp(B, 'Sam Thomas', 'sam@example.com', 'Bengaluru');
+  await signUp(B, 'Sam Thomas', 'sam_thomas', 'sam@example.com', 'Bengaluru');
   await hardNav(B, '/explore?city=Kochi');
   await B.evaluate(() => {
     const card = [...document.querySelectorAll('.host-card')].find((c) => c.innerText.includes('Anjali Nair'));
@@ -165,6 +167,42 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(600);
   const cBody = await C.evaluate(() => document.querySelector('#main').innerText);
   check('signed-out visitor cannot read messages', cBody.includes('Welcome back') || cBody.includes('Log in'), cBody.slice(0, 40).replace(/\n/g, ' '));
+
+  /* ---- 11. email verification through the real link ---- */
+  const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server', 'data', 'db.json'), 'utf8'));
+  const anjali = db.users.find((u) => u.username === 'anjali_nair');
+  const verifyToken = anjali && anjali.tokens && anjali.tokens.verify;
+  check('signup created a verification token', Boolean(verifyToken), verifyToken ? 'yes' : 'missing');
+
+  if (verifyToken) {
+    await A.goto(`${BASE}/#/verify?token=${verifyToken}`, { waitUntil: 'networkidle2' });
+    await sleep(1200);
+    const verifyBody = await A.evaluate(() => document.querySelector('#main').innerText);
+    check('verification link confirms the account', verifyBody.toLowerCase().includes('verified'), verifyBody.slice(0, 60).replace(/\n/g, ' '));
+  }
+
+  /* ---- 12. change password, then log in with the new one ---- */
+  await hardNav(A, '/dashboard/profile');
+  await A.type('#p-current', 'secret123');
+  await A.type('#p-new', 'newsecret456');
+  await A.click('#password-form button[type="submit"]');
+  await sleep(1200);
+  const pwToast = await A.evaluate(() => {
+    const t = [...document.querySelectorAll('.toast')];
+    return t.length ? t[t.length - 1].innerText : '';
+  });
+  check('password change succeeds', /changed|മാറ്റി|बदल/i.test(pwToast), pwToast);
+
+  const ctxD = await newContext();
+  const D = await ctxD.newPage();
+  await D.goto(BASE + '/#/login', { waitUntil: 'networkidle2' });
+  await sleep(600);
+  await D.type('#a-email', 'anjali_nair');
+  await D.type('#a-pass', 'newsecret456');
+  await D.click('#auth-form button[type="submit"]');
+  await sleep(1200);
+  const dBody = await D.evaluate(() => document.querySelector('#main').innerText);
+  check('login works with username and the new password', !dBody.includes('Welcome back') && dBody.length > 40, dBody.slice(0, 40).replace(/\n/g, ' '));
 
   check('no console/page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 

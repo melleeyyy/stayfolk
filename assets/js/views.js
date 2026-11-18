@@ -569,14 +569,33 @@ export function authView(mode = 'login') {
         ${!isLogin ? `
         <div class="field"><label for="a-name">${esc(t('auth.name'))}</label>
           <input class="input" id="a-name" name="name" required autocomplete="name" /></div>
+
+        <div class="field"><label for="a-username">${esc(t('auth.username'))}</label>
+          <input class="input" id="a-username" name="username" required autocomplete="username"
+            pattern="[a-z0-9_]{3,20}" placeholder="anjali_nair" />
+          <span class="tiny muted">${esc(t('auth.usernameHint'))}</span></div>
+
         <div class="field"><label for="a-city">${esc(t('auth.city'))}</label>
-          <input class="input" id="a-city" name="city" autocomplete="address-level2" /></div>` : ''}
+          <input class="input" id="a-city" name="city" autocomplete="address-level2" /></div>
+
+        <div class="field"><label for="a-photo">${esc(t('auth.photoOptional'))}</label>
+          <div class="row" style="gap:10px">
+            <img class="avatar" id="a-photo-preview" src="${avatar('?', 'new-user')}" alt="" />
+            <label class="btn btn--outline btn--sm file-btn">
+              ${icon('plus')}${esc(t('upload.change'))}
+              <input type="file" id="a-photo" accept="image/*" />
+            </label>
+          </div></div>` : ''}
 
         <div class="field"><label for="a-email">${esc(t('auth.email'))}</label>
-          <input class="input" id="a-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" /></div>
+          <input class="input" id="a-email" name="email" type="${isLogin ? 'text' : 'email'}" required
+            autocomplete="${isLogin ? 'username' : 'email'}"
+            placeholder="${isLogin ? 'you@example.com · anjali_nair' : 'you@example.com'}" /></div>
 
         <div class="field"><label for="a-pass">${esc(t('auth.password'))}</label>
-          <input class="input" id="a-pass" name="password" type="password" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" placeholder="••••••••" /></div>
+          <input class="input" id="a-pass" name="password" type="password" required
+            autocomplete="${isLogin ? 'current-password' : 'new-password'}" placeholder="••••••••" />
+          ${!isLogin ? `<span class="tiny muted">${esc(t('auth.passwordHint'))}</span>` : ''}</div>
 
         <p class="field-error" id="auth-error" hidden></p>
 
@@ -588,12 +607,63 @@ export function authView(mode = 'login') {
           <a class="link" href="#/${isLogin ? 'signup' : 'login'}">${esc(isLogin ? t('auth.toSignup') : t('auth.toLogin'))}</a>
         </p>
 
+        ${isLogin ? `<p class="small text-center" style="margin:0">
+          <a class="link" href="#/forgot">${esc(t('auth.forgot'))}</a></p>` : ''}
+
+        ${!store.isRemote() ? `
         <div class="auth-demo">
           <strong style="color:var(--text)">${esc(t('auth.demo'))}</strong>
           <div>${esc(t('nav.dashboard'))}: <code>host@stayfolk.demo</code> / <code>demo1234</code></div>
           <div>${esc(t('nav.admin'))}: <code>admin@stayfolk.demo</code> / <code>demo1234</code></div>
           <div>${esc(t('nav.explore'))}: <code>guest@stayfolk.demo</code> / <code>demo1234</code></div>
-        </div>
+        </div>` : ''}
+      </form>
+    </div>
+  </div>`;
+}
+
+/* ----------------------------------------------------- verify / reset */
+
+const simplePage = (title, text, cta, href) => `
+  <div class="container section" style="max-width:560px;text-align:center">
+    <h1 style="font-size:1.7rem;margin-bottom:12px">${esc(title)}</h1>
+    <p class="lede" style="margin-bottom:26px">${esc(text)}</p>
+    ${cta ? `<a class="btn btn--primary" href="${href}">${esc(cta)}</a>` : ''}
+  </div>`;
+
+export function verifyView(state = {}) {
+  if (state.status === 'ok') return simplePage(t('auth.verifyOk'), t('auth.verifyTitle'), t('nav.home'), '#/');
+  if (state.status === 'error') return simplePage(t('auth.verifyFail'), state.message || '', t('nav.home'), '#/');
+  return simplePage(t('auth.verifyChecking'), t('auth.verifyTitle'), '', '');
+}
+
+export function forgotView() {
+  return `
+  <div class="auth-shell" style="grid-template-columns:1fr">
+    <div class="auth-main">
+      <form class="auth-form" id="forgot-form">
+        <h1 style="font-size:1.6rem">${esc(t('auth.forgot'))}</h1>
+        <p class="small muted">${esc(t('auth.resetSent'))}</p>
+        <div class="field"><label for="f-email">${esc(t('auth.email'))}</label>
+          <input class="input" id="f-email" name="email" required autocomplete="username" /></div>
+        <button class="btn btn--primary btn--lg btn--block" type="submit">${esc(t('auth.forgot'))}</button>
+        <p class="small muted text-center"><a class="link" href="#/login">${esc(t('auth.toLogin'))}</a></p>
+      </form>
+    </div>
+  </div>`;
+}
+
+export function resetView(token) {
+  if (!token) return simplePage(t('auth.verifyFail'), '', t('nav.home'), '#/');
+  return `
+  <div class="auth-shell" style="grid-template-columns:1fr">
+    <div class="auth-main">
+      <form class="auth-form" id="reset-form" data-token="${esc(token)}">
+        <h1 style="font-size:1.6rem">${esc(t('auth.resetTitle'))}</h1>
+        <div class="field"><label for="r-pass">${esc(t('auth.newPassword'))}</label>
+          <input class="input" id="r-pass" name="password" type="password" minlength="8" required autocomplete="new-password" /></div>
+        <p class="field-error" id="reset-error" hidden></p>
+        <button class="btn btn--primary btn--lg btn--block" type="submit">${esc(t('auth.changePassword'))}</button>
       </form>
     </div>
   </div>`;
@@ -668,6 +738,16 @@ export function dashboardView(tab = 'requests') {
         ${isHost && !user.verified ? `<button class="btn btn--green btn--sm" data-action="verify-me">${icon('shield')}${esc(t('dash.verify'))}</button>` : ''}
         ${user.verified ? `<span class="badge badge--verified">${icon('shield')}${esc(t('dash.verified'))}</span>` : ''}
       </div>
+
+      ${!user.emailVerified && store.isRemote() ? `
+        <div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:22px;border-color:#F5DFB0;background:#FFF9EC">
+          ${icon('lock')}
+          <div style="flex:1;min-width:200px">
+            <strong style="color:#7A5200">${esc(t('auth.notVerified'))}</strong>
+            <div class="tiny" style="color:#7A5200">${esc(user.email)}</div>
+          </div>
+          <button class="btn btn--outline btn--sm" data-action="resend-verification">${esc(t('auth.resend'))}</button>
+        </div>` : ''}
 
       <div class="grid grid--3" style="margin-bottom:26px">
         <div class="stat-card"><span class="stat-card__num">${list.length}</span><span class="stat-card__label">${esc(isHost ? t('dash.incoming') : t('dash.trips'))}</span></div>
@@ -745,6 +825,18 @@ export function dashboardView(tab = 'requests') {
             <button class="btn btn--primary" type="submit">${icon('check')}${esc(t('common.save'))}</button>
             <a class="btn btn--outline btn--sm" href="#/form-c">${icon('shield')}${esc(t('nav.formc'))}</a>
           </div>
+        </form>
+
+        <form class="card" id="password-form" style="display:grid;gap:16px;margin-top:18px">
+          <h3>${esc(t('auth.changePassword'))}</h3>
+          <div class="grid grid--2" style="gap:14px">
+            <div class="field"><label for="p-current">${esc(t('auth.currentPassword'))}</label>
+              <input class="input" id="p-current" name="current" type="password" required autocomplete="current-password" /></div>
+            <div class="field"><label for="p-new">${esc(t('auth.newPassword'))}</label>
+              <input class="input" id="p-new" name="next" type="password" minlength="8" required autocomplete="new-password" /></div>
+          </div>
+          <p class="field-error" id="password-error" hidden></p>
+          <div><button class="btn btn--outline" type="submit">${icon('lock')}${esc(t('auth.changePassword'))}</button></div>
         </form>`
       : `<div class="stack" style="gap:14px">
           ${list.length ? list.map(requestRow).join('') : empty(t('dash.empty'), t('search.noneHint'), 'calendar')}

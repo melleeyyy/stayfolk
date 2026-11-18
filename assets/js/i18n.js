@@ -131,6 +131,25 @@ const en = {
   'req.login': 'Log in to send a request',
   'req.sent': 'Request sent to {name}',
 
+  'auth.username': 'Username',
+  'auth.usernameHint': '3–20 characters: lowercase letters, numbers and underscore.',
+  'auth.passwordHint': 'At least 8 characters.',
+  'auth.photoOptional': 'Profile photo (optional)',
+  'auth.forgot': 'Forgot your password?',
+  'auth.verifyTitle': 'Check your email',
+  'auth.verifyOk': 'Your email is verified — welcome aboard.',
+  'auth.verifyFail': 'We could not verify that link.',
+  'auth.verifyChecking': 'Verifying your link…',
+  'auth.verifySent': 'Verification link sent',
+  'auth.resend': 'Resend link',
+  'auth.notVerified': 'Your email is not verified yet',
+  'auth.changePassword': 'Change password',
+  'auth.currentPassword': 'Current password',
+  'auth.newPassword': 'New password',
+  'auth.passwordChanged': 'Password changed',
+  'auth.resetTitle': 'Choose a new password',
+  'auth.resetSent': 'If that account exists, a reset link is on its way.',
+
   'auth.loginTitle': 'Welcome back',
   'auth.loginSub': 'Log in to manage requests and messages.',
   'auth.signupTitle': 'Join StayFolk',
@@ -239,9 +258,13 @@ const en = {
 
 import { locales } from './locales.js';
 import { extra } from './locales-extra.js';
+import { authExtra } from './locales-auth.js';
 
 const merged = Object.fromEntries(
-  Object.entries(locales).map(([code, table]) => [code, { ...table, ...(extra[code] || {}) }])
+  Object.entries(locales).map(([code, table]) => [
+    code,
+    { ...table, ...(extra[code] || {}), ...(authExtra[code] || {}) },
+  ])
 );
 
 export const DICT = { en, ...merged };

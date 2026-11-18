@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
+const mailer = require('./mailer.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_DIR = path.join(__dirname, 'data');
@@ -27,6 +28,8 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PORT = Number(process.env.PORT) || 8787;
 const COOKIE = 'sf_sid';
+const PUBLIC_URL = () => (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
 /* ------------------------------------------------------------------ store */
 
@@ -210,7 +213,9 @@ function endSession(req, res) {
 const publicUser = (u) => ({
   id: u.id,
   name: u.name,
+  username: u.username || '',
   email: u.email,
+  emailVerified: Boolean(u.emailVerified),
   city: u.city || '',
   bio: u.bio || '',
   languages: u.languages || [],
@@ -379,31 +384,42 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/auth/signup' && method === 'POST') {
     if (tooManyAttempts(ip)) return json(res, 429, { error: 'too many attempts, try later' });
     const body = await readBody(req);
-    const name = String(body.name || '').trim();
+    const name = String(body.name || '').trim().slice(0, 80);
+    const username = String(body.username || '').trim().toLowerCase();
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
 
-    if (!name || !email || password.length < 6) {
-      return json(res, 422, { error: 'Name, email and a password of at least 6 characters are required.' });
+    if (!name || !email || password.length < 8) {
+      return json(res, 422, { error: 'Name, email and a password of at least 8 characters are required.' });
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       return json(res, 422, { error: 'That email address does not look right.' });
     }
+    if (!USERNAME_RE.test(username)) {
+      return json(res, 422, { error: 'Usernames are 3–20 characters: letters, numbers and underscore only.' });
+    }
     if (db.users.some((u) => u.email === email)) {
       return json(res, 409, { error: 'An account with that email already exists.' });
     }
+    if (db.users.some((u) => u.username === username)) {
+      return json(res, 409, { error: 'That username is already taken.' });
+    }
 
+    const verifyToken = crypto.randomBytes(24).toString('hex');
     const user = {
       id: uid('u'),
       name,
+      username,
       email,
       password: hashPassword(password),
-      city: String(body.city || '').trim(),
+      city: String(body.city || '').trim().slice(0, 80),
       bio: '',
       languages: [],
       avatar: null,
       cover: null,
       verified: false,
+      emailVerified: false,
+      tokens: { verify: verifyToken, verifyAt: Date.now() },
       role: db.users.length === 0 ? 'admin' : 'member',
       hosting: { enabled: false, space: '', maxGuests: 1, womenOnly: false, tags: [], rules: [] },
       createdAt: now(),
@@ -411,16 +427,20 @@ async function handleApi(req, res, url) {
     db.users.push(user);
     startSession(res, user.id);
     save();
-    return json(res, 201, { user: publicUser(user) });
+
+    const delivered = await mailer.sendVerification({
+      baseUrl: PUBLIC_URL(), to: email, name, token: verifyToken,
+    });
+    return json(res, 201, { user: publicUser(user), verificationEmailSent: delivered });
   }
 
   if (pathname === '/api/auth/login' && method === 'POST') {
     if (tooManyAttempts(ip)) return json(res, 429, { error: 'too many attempts, try later' });
     const body = await readBody(req);
-    const email = String(body.email || '').trim().toLowerCase();
-    const user = db.users.find((u) => u.email === email);
+    const identifier = String(body.email || body.username || '').trim().toLowerCase();
+    const user = db.users.find((u) => u.email === identifier || u.username === identifier);
     if (!user || !verifyPassword(body.password, user.password)) {
-      return json(res, 401, { error: 'Email or password is incorrect.' });
+      return json(res, 401, { error: 'Email, username or password is incorrect.' });
     }
     startSession(res, user.id);
     return json(res, 200, { user: publicUser(user) });
@@ -439,11 +459,108 @@ async function handleApi(req, res, url) {
   /* ---- me ---- */
   const me = currentUser(req);
 
+  /* ---- email verification ---- */
+  if (pathname === '/api/auth/verify' && (method === 'POST' || method === 'GET')) {
+    const token = method === 'GET' ? searchParams.get('token') : (await readBody(req)).token;
+    if (!token) return json(res, 422, { error: 'That link is missing its token.' });
+    const user = db.users.find((u) => u.tokens && u.tokens.verify === token);
+    if (!user) return json(res, 400, { error: 'That link is invalid or has already been used.' });
+    if (Date.now() - (user.tokens.verifyAt || 0) > 24 * 60 * 60 * 1000) {
+      return json(res, 400, { error: 'That link has expired. Ask for a new one.' });
+    }
+    user.emailVerified = true;
+    delete user.tokens.verify;
+    save();
+    return json(res, 200, { ok: true, user: publicUser(user) });
+  }
+
+  if (pathname === '/api/auth/resend-verification' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    if (me.emailVerified) return json(res, 200, { ok: true, alreadyVerified: true });
+    if (Date.now() - ((me.tokens && me.tokens.verifyAt) || 0) < 60 * 1000) {
+      return json(res, 429, { error: 'A link was just sent — give it a minute.' });
+    }
+    const token = crypto.randomBytes(24).toString('hex');
+    me.tokens = { ...(me.tokens || {}), verify: token, verifyAt: Date.now() };
+    save();
+    const delivered = await mailer.sendVerification({
+      baseUrl: PUBLIC_URL(), to: me.email, name: me.name, token,
+    });
+    return json(res, 200, { ok: true, verificationEmailSent: delivered });
+  }
+
+  /* ---- password reset ---- */
+  if (pathname === '/api/auth/forgot' && method === 'POST') {
+    if (tooManyAttempts(ip)) return json(res, 429, { error: 'Too many attempts, try again later.' });
+    const body = await readBody(req);
+    const identifier = String(body.email || '').trim().toLowerCase();
+    const user = db.users.find((u) => u.email === identifier || u.username === identifier);
+    if (user) {
+      const token = crypto.randomBytes(24).toString('hex');
+      user.tokens = { ...(user.tokens || {}), reset: token, resetAt: Date.now() };
+      save();
+      await mailer.sendPasswordReset({ baseUrl: PUBLIC_URL(), to: user.email, name: user.name, token });
+    }
+    // the same answer either way, so the endpoint cannot be used to find accounts
+    return json(res, 200, { ok: true });
+  }
+
+  if (pathname === '/api/auth/reset' && method === 'POST') {
+    const body = await readBody(req);
+    const token = String(body.token || '');
+    const password = String(body.password || '');
+    if (password.length < 8) {
+      return json(res, 422, { error: 'The new password needs at least 8 characters.' });
+    }
+    const user = db.users.find((u) => u.tokens && u.tokens.reset === token);
+    if (!user) return json(res, 400, { error: 'That link is invalid or has expired.' });
+    if (Date.now() - (user.tokens.resetAt || 0) > 60 * 60 * 1000) {
+      return json(res, 400, { error: 'That link has expired. Ask for a new one.' });
+    }
+    user.password = hashPassword(password);
+    user.emailVerified = true;
+    delete user.tokens.reset;
+    for (const [t, s] of Object.entries(db.sessions)) if (s.userId === user.id) delete db.sessions[t];
+    save();
+    return json(res, 200, { ok: true });
+  }
+
+  /* ---- change password while signed in ---- */
+  if (pathname === '/api/me/password' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const body = await readBody(req);
+    const current = String(body.current || '');
+    const next = String(body.next || '');
+    if (!verifyPassword(current, me.password)) {
+      return json(res, 403, { error: 'Your current password is not right.' });
+    }
+    if (next.length < 8) return json(res, 422, { error: 'The new password needs at least 8 characters.' });
+    if (next === current) return json(res, 422, { error: 'Pick a password you have not used here before.' });
+    me.password = hashPassword(next);
+    // keep the session doing the change, sign out every other device
+    const keep = parseCookies(req)[COOKIE];
+    for (const [token, s] of Object.entries(db.sessions)) {
+      if (s.userId === me.id && token !== keep) delete db.sessions[token];
+    }
+    save();
+    return json(res, 200, { ok: true });
+  }
+
   if (pathname === '/api/me' && method === 'PATCH') {
     if (!me) return json(res, 401, { error: 'Sign in first.' });
     const body = await readBody(req);
 
     if (body.name !== undefined) me.name = String(body.name).trim().slice(0, 80) || me.name;
+    if (body.username !== undefined) {
+      const username = String(body.username).trim().toLowerCase();
+      if (!USERNAME_RE.test(username)) {
+        return json(res, 422, { error: 'Usernames are 3–20 characters: letters, numbers and underscore only.' });
+      }
+      if (db.users.some((u) => u.username === username && u.id !== me.id)) {
+        return json(res, 409, { error: 'That username is already taken.' });
+      }
+      me.username = username;
+    }
     if (body.city !== undefined) me.city = String(body.city).trim().slice(0, 80);
     if (body.bio !== undefined) me.bio = String(body.bio).slice(0, 2000);
     if (body.languages !== undefined) {

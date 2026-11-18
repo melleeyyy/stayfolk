@@ -16,15 +16,17 @@ StayFolk is a working Couchsurfing-style site: people create a profile, upload p
 
 ## What a person can actually do
 
-1. **Sign up** with a name, email and password (scrypt-hashed, httpOnly cookie session).
-2. **Build a profile** — cover photo, avatar, city, bio, languages spoken.
-3. **Turn hosting on** — say what space you have, how many guests, whether it is women-only.
-4. **Find a host** — filter by city, guests, spoken language, verified-only or women-only; sort by rating, response speed or newness.
-5. **Send a request** with dates, number of guests and a personal message.
-6. **Answer requests** from the host dashboard — accept or decline.
-7. **Chat** — messages are stored on the server and both sides see them, with polling every few seconds.
-8. **Leave a review** after a stay; reviews are permanent and two-sided.
-9. **Report a profile** if something is wrong.
+1. **Sign up** with a name, a unique **username**, email, password and an optional photo (scrypt-hashed, httpOnly cookie session).
+2. **Verify the email** — a one-click link, with a resend button if it gets lost.
+3. **Build a profile** — cover photo, avatar, city, bio, languages spoken.
+4. **Change the password** at any time, or reset it from the sign-in page if forgotten.
+5. **Turn hosting on** — say what space you have, how many guests, whether it is women-only.
+6. **Find a host** — filter by city, guests, spoken language, verified-only or women-only; sort by rating, response speed or newness.
+7. **Send a request** with dates, number of guests and a personal message.
+8. **Answer requests** from the host dashboard — accept or decline.
+9. **Chat** — messages are stored on the server and both sides see them, with polling every few seconds.
+10. **Leave a review** after a stay; reviews are permanent and two-sided.
+11. **Report a profile** if something is wrong.
 
 Plus a **Form C / FRRO checklist** for Indian hosts taking foreign guests — the reporting obligation most hospitality-exchange clones miss — with saved progress and a printable version.
 
@@ -55,7 +57,7 @@ To let someone else join, run the server on a machine they can reach and share t
 
 The site and the API are one Node process, so any Node host works.
 
-**Render (easiest):** push the repo, then *New → Blueprint* and pick `render.yaml`. The free plan sleeps after inactivity and has an **ephemeral disk** — accounts and photos are lost on restart. Uncomment the `disk:` block on a paid instance for permanent storage.
+**Render (easiest):** see **[RENDER.md](RENDER.md)** for the exact click-by-click steps, the environment variables that matter (`PUBLIC_URL`, mail keys) and the free-plan disk caveat.
 
 **Fly.io / Railway / a VPS:** the same, with a volume mounted at `/app/server/data`.
 
@@ -77,6 +79,7 @@ sw.js                      service worker (offline app shell)
 assets/css/app.css         design system + all components
 assets/js/
   api.js                   fetch wrapper + server detection
+  locales-auth.js          account-security strings (username, verification, passwords)
   store.js                 the whole data layer, in two modes (remote / local)
   app.js                   router, chrome, delegated events, polling, PWA
   views.js                 every screen as a pure render function
@@ -86,6 +89,7 @@ assets/js/
   locales-extra.js         strings added after v1, merged into the same tables
   media.js                 generated SVG covers and avatars
 server/index.js            accounts, sessions, uploads, requests, messaging
+server/mailer.js           Brevo / Resend / console email for verification and reset
 test/e2e.js                static-mode smoke test (37 checks)
 test/live.js               two real users against the real server (12 checks)
 test/audit.js              layout audit: overflow, clipping, contrast, tap targets
@@ -108,20 +112,25 @@ test/audit.js              layout audit: overflow, clipping, contrast, tap targe
 
 ```bash
 node test/e2e.js      # static demo: 37 checks
-node test/live.js     # two people on the real server: 12 checks
+node test/live.js     # two people on the real server: 17 checks
 node test/audit.js    # layout audit across 4 viewports
 ```
 
-`test/live.js` boots the server and drives two isolated browser sessions: A signs up and turns hosting on, uploads a photo, B finds A in the directory, sends a request, A accepts, they exchange messages, and a signed-out visitor is refused.
+`test/live.js` boots the server and drives isolated browser sessions: A signs up with a username, turns hosting on, uploads a photo, confirms the email through the real token, changes the password, logs back in with the username; B finds A in the directory, sends a request, A accepts, they exchange messages, and a signed-out visitor is refused.
 
 ## API
 
 ```
-POST   /api/auth/signup            { name, email, password, city }
-POST   /api/auth/login             { email, password }
+POST   /api/auth/signup            { name, username, email, password, city }
+POST   /api/auth/login             { email | username, password }
 POST   /api/auth/logout
+POST   /api/auth/verify            { token }
+POST   /api/auth/resend-verification
+POST   /api/auth/forgot            { email }
+POST   /api/auth/reset             { token, password }
+POST   /api/me/password            { current, next }
 GET    /api/bootstrap              everything the client needs for its first paint
-PATCH  /api/me                     { name, city, bio, languages, hosting }
+PATCH  /api/me                     { name, username, city, bio, languages, hosting }
 POST   /api/me/photo               { kind: avatar|cover, dataUrl }
 DELETE /api/me/photo?kind=avatar
 POST   /api/requests               { hostId, from, to, guests, message }

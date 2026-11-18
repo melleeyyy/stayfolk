@@ -143,6 +143,7 @@ function parseRoute() {
 }
 
 let lastScrollKey = '';
+let verifyState = { status: 'pending' };
 
 function route() {
   const { segs, query } = parseRoute();
@@ -196,6 +197,28 @@ function route() {
       html = V.authView('login');
       title = `${t('nav.login')} — StayFolk`;
       break;
+    case 'forgot':
+      html = V.forgotView();
+      title = `${t('auth.forgot')} — StayFolk`;
+      break;
+    case 'reset':
+      html = V.resetView(query.get('token') || '');
+      title = `${t('auth.resetTitle')} — StayFolk`;
+      break;
+    case 'verify': {
+      html = V.verifyView(verifyState);
+      title = `${t('auth.verifyTitle')} — StayFolk`;
+      const token = query.get('token') || '';
+      if (token && !verifyState.started) {
+        verifyState = { status: 'pending', started: true };
+        // keep `started` set, otherwise the re-render would fire the same
+        // one-time token again and overwrite the success message with an error
+        store.verifyEmail(token)
+          .then(() => { verifyState = { status: 'ok', started: true }; route(); })
+          .catch((err) => { verifyState = { status: 'error', message: err.message, started: true }; route(); });
+      }
+      break;
+    }
     case 'signup':
       html = V.authView('signup');
       title = `${t('nav.signup')} — StayFolk`;
@@ -372,6 +395,15 @@ document.addEventListener('click', async (e) => {
       go(`/messages/${thread.id}`);
       break;
     }
+    case 'resend-verification': {
+      try {
+        await store.resendVerification();
+        toast(t('auth.verifySent'));
+      } catch (err) {
+        toast(err.message || t('auth.verifyFail'), 'error');
+      }
+      break;
+    }
     case 'verify-me': {
       const entry = await store.requestVerification();
       toast(entry ? t('dash.verify') : t('dash.pending'));
@@ -542,13 +574,29 @@ document.addEventListener('submit', async (e) => {
       if (!name || !email || password.length < 6) {
         return showError(`${t('auth.name')} · ${t('auth.email')} · ${t('auth.password')}`);
       }
+      const username = String(fd.get('username') || '').trim().toLowerCase();
+      if (!/^[a-z0-9_]{3,20}$/.test(username)) return showError(t('auth.usernameHint'));
+      if (password.length < 8) return showError(t('auth.passwordHint'));
+
       let res;
       try {
-        res = await store.signup({ name, email, password, city: fd.get('city') });
+        res = await store.signup({ name, username, email, password, city: fd.get('city') });
       } catch (err) {
         return showError(err.message || t('auth.invalid'));
       }
       if (res.error === 'exists') return showError(t('auth.invalid'));
+
+      const photo = form.querySelector('#a-photo');
+      const file = photo && photo.files && photo.files[0];
+      if (file && store.currentUser()) {
+        try {
+          const dataUrl = await readImage(file, 640);
+          await store.setPhoto(store.currentUser().id, 'avatar', dataUrl);
+        } catch {
+          /* a failed photo must not block the signup */
+        }
+      }
+
       toast(t('auth.welcome', { name: res.user.name }));
       go('/dashboard');
     }
@@ -585,6 +633,50 @@ document.addEventListener('submit', async (e) => {
     if (await store.sendMessage(form.dataset.thread, input.value)) {
       input.value = '';
       route();
+    }
+    return;
+  }
+
+  if (form.id === 'password-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const errorEl = form.querySelector('#password-error');
+    try {
+      await store.changePassword(String(fd.get('current') || ''), String(fd.get('next') || ''));
+      errorEl.hidden = true;
+      form.reset();
+      toast(t('auth.passwordChanged'));
+    } catch (err) {
+      errorEl.textContent = err.message || t('auth.verifyFail');
+      errorEl.hidden = false;
+    }
+    return;
+  }
+
+  if (form.id === 'forgot-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      await store.requestPasswordReset(String(fd.get('email') || ''));
+      toast(t('auth.resetSent'));
+      go('/login');
+    } catch (err) {
+      toast(err.message || t('auth.verifyFail'), 'error');
+    }
+    return;
+  }
+
+  if (form.id === 'reset-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const errorEl = form.querySelector('#reset-error');
+    try {
+      await store.resetPassword(form.dataset.token, String(fd.get('password') || ''));
+      toast(t('auth.passwordChanged'));
+      go('/login');
+    } catch (err) {
+      errorEl.textContent = err.message || t('auth.verifyFail');
+      errorEl.hidden = false;
     }
     return;
   }
