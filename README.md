@@ -2,45 +2,100 @@
 
 **A hospitality exchange — travel like a local, host like a friend.**
 
-StayFolk is a fully working product demo of a Couchsurfing-style community: free stays with verified local hosts, a request → accept → chat → review loop, a host dashboard, and a moderation console. It runs as a static site on GitHub Pages with no backend required, and ships with a small reference API server for when you outgrow the browser.
+StayFolk is a working Couchsurfing-style site: people create a profile, upload photos, find a host in another city, send a stay request, chat, and leave a review. It runs in two modes from the same codebase.
 
-**Live demo:** https://melleeyyy.github.io/stayfolk/
+| Mode | What it is | Where |
+|---|---|---|
+| **Live** | Real accounts, photos, requests and messages shared between people on different devices | `node server/index.js` |
+| **Demo** | Everything works but state stays in the browser — no sign-up server needed | GitHub Pages |
+
+**Live demo (browser-only):** https://melleeyyy.github.io/stayfolk/
+**Run it for real:** see [Getting started](#getting-started) — one command, no dependencies.
 
 ---
 
-## What is in here
+## What a person can actually do
 
-| Area | What it does |
-|---|---|
-| **Home** | Hero search, how-it-works, featured hosts, city grid, trust pillars |
-| **Explore** | Filter by city, guests, spoken language, verified-only, women-only; sort by rating, response speed or newness |
-| **Host profile** | Bio, space details, house rules, languages, references, reviews, request modal, report flow |
-| **Cities** | 18 city pages with their hosts |
-| **Request flow** | Date range + guests + personal message → appears instantly in the host's dashboard |
-| **Host dashboard** | Incoming requests with accept / decline, stats, hosting profile, ID verification request |
-| **Guest dashboard** | "My trips" — every request you have sent and its status |
-| **Messaging** | Threaded conversations opened from a request or a response |
-| **Moderation console** | Report queue, ID-verification queue, member list, resolve / ban actions |
-| **Safety centre** | Trust model, reporting, emergency guidance |
-| **Form C checklist** | Step-by-step FRRO / police reporting flow for hosts taking foreign guests in India, with saved progress and a printable checklist |
-| **Auth** | Sign up, log in, session persistence — all local, no server needed |
-| **12 languages** | English (default), Hindi, Malayalam, Tamil, French, Spanish, German, Portuguese, Russian, Arabic (full RTL), Korean, Japanese |
-| **Themes** | Light and dark, remembered between visits |
-| **Photo upload** | Hosts replace their cover and avatar; images are downscaled in the browser and stored locally |
-| **Installable PWA** | Web app manifest, offline app shell and an install prompt in the header |
+1. **Sign up** with a name, email and password (scrypt-hashed, httpOnly cookie session).
+2. **Build a profile** — cover photo, avatar, city, bio, languages spoken.
+3. **Turn hosting on** — say what space you have, how many guests, whether it is women-only.
+4. **Find a host** — filter by city, guests, spoken language, verified-only or women-only; sort by rating, response speed or newness.
+5. **Send a request** with dates, number of guests and a personal message.
+6. **Answer requests** from the host dashboard — accept or decline.
+7. **Chat** — messages are stored on the server and both sides see them, with polling every few seconds.
+8. **Leave a review** after a stay; reviews are permanent and two-sided.
+9. **Report a profile** if something is wrong.
 
-## Tech
+Plus a **Form C / FRRO checklist** for Indian hosts taking foreign guests — the reporting obligation most hospitality-exchange clones miss — with saved progress and a printable version.
 
-- **Vanilla ES modules** — no framework, no build step, no dependencies. The whole app is ~2,000 lines of readable JavaScript.
-- **Hash router** (`#/host/h1`) so it deploys to GitHub Pages with no server rewrites.
-- **localStorage store** mirroring the REST API shape, so swapping in the real backend is a matter of replacing one module.
-- **Inline SVG imagery** — covers and avatars are generated data-URIs from the brand palette. Zero external image or font requests; the site works offline.
-- **Installable PWA** — a service worker caches the app shell, so the demo opens offline and installs to a home screen.
-- **Node reference API** in `server/` — zero dependencies, scrypt password hashing, JSON persistence.
+**12 languages** (English default, Hindi, Malayalam, Tamil, French, Spanish, German, Portuguese, Russian, Arabic with full RTL, Korean, Japanese), light and dark themes, installable as a PWA, and usable on a phone.
+
+## Getting started
+
+```bash
+git clone https://github.com/melleeyyy/stayfolk.git
+cd stayfolk
+node server/index.js
+```
+
+Open **http://localhost:8787**. That is the whole setup — there are no dependencies to install and no build step.
+
+The first account you create becomes the moderator. Everything is stored in `server/data/`:
+
+```
+server/data/db.json      accounts, sessions, requests, threads, messages, reviews
+server/data/uploads/     uploaded photos (JPEG, downscaled in the browser first)
+```
+
+Delete that folder to start fresh.
+
+To let someone else join, run the server on a machine they can reach and share the address — on the same Wi-Fi that is `http://<your-lan-ip>:8787`.
+
+## Deploying so real people can use it
+
+The site and the API are one Node process, so any Node host works.
+
+**Render (easiest):** push the repo, then *New → Blueprint* and pick `render.yaml`. The free plan sleeps after inactivity and has an **ephemeral disk** — accounts and photos are lost on restart. Uncomment the `disk:` block on a paid instance for permanent storage.
+
+**Fly.io / Railway / a VPS:** the same, with a volume mounted at `/app/server/data`.
+
+**Docker:**
+
+```bash
+docker build -t stayfolk .
+docker run -p 8080:8080 -v stayfolk-data:/app/server/data stayfolk
+```
+
+Whatever you choose, mount `server/data` on a persistent volume — that folder *is* the database.
+
+## Architecture
+
+```
+index.html                 app shell
+manifest.webmanifest       PWA metadata, icons, shortcuts
+sw.js                      service worker (offline app shell)
+assets/css/app.css         design system + all components
+assets/js/
+  api.js                   fetch wrapper + server detection
+  store.js                 the whole data layer, in two modes (remote / local)
+  app.js                   router, chrome, delegated events, polling, PWA
+  views.js                 every screen as a pure render function
+  data.js                  24 seed hosts, 18 cities, reviews
+  i18n.js                  English source strings + t()
+  locales.js               11 translated locales
+  locales-extra.js         strings added after v1, merged into the same tables
+  media.js                 generated SVG covers and avatars
+server/index.js            accounts, sessions, uploads, requests, messaging
+test/e2e.js                static-mode smoke test (37 checks)
+test/live.js               two real users against the real server (12 checks)
+test/audit.js              layout audit: overflow, clipping, contrast, tap targets
+```
+
+**How the two modes work.** `server/index.js` injects `<meta name="stayfolk-server">` into the HTML it serves. If `store.js` finds that tag it talks to the API; if it does not (GitHub Pages) it runs the identical UI against localStorage. Views never know the difference — they read one synchronous state object, and mutations return promises.
+
+**Security notes.** Passwords are scrypt-hashed with a per-user salt; sessions are random 24-byte tokens in httpOnly, SameSite=Lax cookies; the upload endpoint only accepts base64 JPEG/PNG/WebP under 6 MB and writes them outside the web root's source tree; the auth endpoints are rate-limited per IP; every message and thread is checked against the signed-in user before it is returned.
 
 ## Brand palette
-
-The design system is built on exactly four colours, taken from the project brief:
 
 | Token | Hex | Use |
 |---|---|---|
@@ -49,107 +104,51 @@ The design system is built on exactly four colours, taken from the project brief
 | Black | `#000000` | Ink sections, primary text, brand mark |
 | White | `#FFFFFF` | Surfaces, text on ink |
 
-## Run it locally
-
-Any static server works:
-
-```bash
-# option 1 — the bundled API server also serves the static site
-node server/index.js          # → http://localhost:8787
-
-# option 2 — plain static
-npx serve .                   # or: python3 -m http.server 8000
-```
-
-Then open the printed URL. No install step, no build.
-
-## Demo accounts
-
-The demo seeds three accounts (password `demo1234` for all):
-
-| Role | Email | Lands on |
-|---|---|---|
-| Host | `host@stayfolk.demo` | Host dashboard with three incoming requests |
-| Guest | `guest@stayfolk.demo` | My trips |
-| Moderator | `admin@stayfolk.demo` | Moderation console with three open reports |
-
-Or sign up — new accounts are stored in your browser only.
-
-## Project structure
-
-```
-index.html                 app shell
-manifest.webmanifest       PWA metadata, icons, shortcuts
-sw.js                      service worker (offline app shell)
-assets/css/app.css         design system + all components
-assets/img/                brand mark and generated PWA icons
-assets/js/
-  app.js                   router, chrome, delegated events, toasts, PWA
-  views.js                 every screen as a pure render function
-  store.js                 localStorage state (users, requests, photos…)
-  data.js                  24 hosts, 18 cities, reviews, seed data
-  i18n.js                  English source strings + t()
-  locales.js               11 translated locales
-  locales-extra.js         strings added after v1, merged into the same tables
-  media.js                 generated SVG covers and avatars
-server/index.js            zero-dependency reference API
-test/e2e.js                headless-Chromium smoke test (37 checks)
-test/audit.js              layout audit: overflow, clipping, contrast, tap targets
-```
-
 ## Tests
 
 ```bash
-node test/e2e.js
+node test/e2e.js      # static demo: 37 checks
+node test/live.js     # two people on the real server: 12 checks
+node test/audit.js    # layout audit across 4 viewports
 ```
 
-Drives the real site in headless Chromium: every route, all 12 locales, filters, login, request → accept → message, admin resolution, photo upload, the Form C tracker, dark mode and mobile overflow. **37/37 passing.**
+`test/live.js` boots the server and drives two isolated browser sessions: A signs up and turns hosting on, uploads a photo, B finds A in the directory, sends a request, A accepts, they exchange messages, and a signed-out visitor is refused.
 
-```bash
-node test/audit.js
-```
-
-Loads nine routes at four viewports and reports horizontal overflow, elements outside the viewport, clipped text, header collisions, low-contrast text and undersized tap targets. Used to catch the layout defects fixed in this release.
-
-## Deploying to GitHub Pages
-
-The repo is already configured: **Settings → Pages → Deploy from branch → `main` / root**. Any push to `main` republishes the site at `https://<user>.github.io/stayfolk/`.
-
-## API reference (optional backend)
+## API
 
 ```
-POST   /api/auth/signup          { name, email, password, city }
-POST   /api/auth/login           { email, password } → { token, user }
-GET    /api/me                   Bearer token
-GET    /api/hosts?city=&language=&verified=1&women=1
-GET    /api/hosts/:id
-POST   /api/requests             { hostId, from, to, guests, message }
-GET    /api/requests             → { outgoing, incoming }
-PATCH  /api/requests/:id         { status: accepted | declined }  (host only)
-GET    /api/threads
+POST   /api/auth/signup            { name, email, password, city }
+POST   /api/auth/login             { email, password }
+POST   /api/auth/logout
+GET    /api/bootstrap              everything the client needs for its first paint
+PATCH  /api/me                     { name, city, bio, languages, hosting }
+POST   /api/me/photo               { kind: avatar|cover, dataUrl }
+DELETE /api/me/photo?kind=avatar
+POST   /api/requests               { hostId, from, to, guests, message }
+PATCH  /api/requests/:id           { status: accepted|declined }  (host only)
+POST   /api/threads                { hostId, userId }
 GET    /api/threads/:id/messages
-POST   /api/threads/:id/messages { text }
-POST   /api/reports              { targetType, targetId, reason, detail }
+POST   /api/threads/:id/messages   { text }
+GET    /api/sync?since=ISO_DATE    new messages and requests for polling
+POST   /api/reviews                { hostId, rating, text }
+POST   /api/reports                { targetType, targetId, reason, detail }
 GET    /api/health
 ```
 
 ## Notes for a real launch
 
-This is a demo, but the product decisions behind it are deliberate:
-
 - **Stays are free.** The moment money changes hands for accommodation the product becomes a rental marketplace, with a different legal, tax and licensing position.
 - **Requests, not bookings.** Hosts keep the right to decline; that asymmetry is what makes the community feel human.
 - **Reviews are permanent and two-sided.** Nobody can delete a review written about them.
 - **ID documents are never stored** — only a pass/fail result, checked through a KYC provider.
-- **India-specific:** when a foreign guest stays with an Indian host, the host must report the arrival to the local FRRO / police (Form C under the Registration of Foreigners Act, normally within 24 hours). Surface this in host onboarding.
-- **Data protection:** personal data and ID checks fall under the DPDP Act, 2023 — collect the minimum, state the purpose, and give a deletion path.
+- **India-specific:** a host taking a foreign guest must report the arrival to the local FRO/FRRO or police (Form C, normally within 24 hours). It is built into the product as a checklist.
+- **Data protection:** personal data falls under the DPDP Act, 2023 — collect the minimum, state the purpose, and give a deletion path.
 
 ## Roadmap
 
-1. **Phase 1 (this build)** — static demo, complete UX, local state.
-2. **Phase 2** — real API, Postgres, KYC integration, email notifications, image uploads.
-3. **Phase 3** — PWA install, push notifications, events and hangouts, city ambassadors.
-4. **Phase 4** — mobile apps, moderation tooling at scale, trust scoring.
+1. **Now** — accounts, profiles, photos, requests, messaging, reviews, 12 languages, PWA.
+2. **Next** — email notifications, image galleries, real-time messaging over WebSockets, moderation endpoints for reports and verification.
+3. **Later** — events and hangouts, city ambassadors, mobile apps, trust scoring.
 
 ## License
 

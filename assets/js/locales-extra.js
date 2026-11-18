@@ -8,6 +8,8 @@ export const extra = {
   /* ------------------------------------------------------------------ हिन्दी */
   hi: {
     'nav.formc': 'फ़ॉर्म C चेकलिस्ट',
+    'profile.hosting': 'मैं मेहमान रख सकता/सकती हूँ',
+    'profile.saved': 'प्रोफ़ाइल सहेजी गई',
     'pwa.install': 'ऐप इंस्टॉल करें',
     'pwa.installed': 'ऐप इंस्टॉल हो गया',
     'upload.photo': 'प्रोफ़ाइल फ़ोटो',
@@ -40,6 +42,8 @@ export const extra = {
   /* --------------------------------------------------------------- മലയാളം */
   ml: {
     'nav.formc': 'ഫോം C ചെക്ലിസ്റ്റ്',
+    'profile.hosting': 'എനിക്ക് അതിഥികളെ താമസിപ്പിക്കാം',
+    'profile.saved': 'പ്രൊഫൈൽ സേവ് ചെയ്തു',
     'pwa.install': 'ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്യുക',
     'pwa.installed': 'ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്തു',
     'upload.photo': 'പ്രൊഫൈൽ ഫോട്ടോ',
@@ -72,6 +76,8 @@ export const extra = {
   /* ----------------------------------------------------------------- தமிழ் */
   ta: {
     'nav.formc': 'படிவம் C சரிபார்ப்பு பட்டியல்',
+    'profile.hosting': 'என்னால் விருந்தினர்களைத் தங்கவைக்க முடியும்',
+    'profile.saved': 'சுயவிவரம் சேமிக்கப்பட்டது',
     'pwa.install': 'செயலியை நிறுவு',
     'pwa.installed': 'செயலி நிறுவப்பட்டது',
     'upload.photo': 'சுயவிவரப் படம்',
@@ -104,6 +110,8 @@ export const extra = {
   /* --------------------------------------------------------------- Français */
   fr: {
     'nav.formc': 'Liste Form C',
+    'profile.hosting': "Je peux accueillir des voyageurs",
+    'profile.saved': 'Profil enregistré',
     'pwa.install': "Installer l'app",
     'pwa.installed': 'Application installée',
     'upload.photo': 'Photo de profil',
@@ -136,6 +144,8 @@ export const extra = {
   /* --------------------------------------------------------------- Español */
   es: {
     'nav.formc': 'Lista Form C',
+    'profile.hosting': 'Puedo alojar huéspedes',
+    'profile.saved': 'Perfil guardado',
     'pwa.install': 'Instalar app',
     'pwa.installed': 'App instalada',
     'upload.photo': 'Foto de perfil',
@@ -168,6 +178,8 @@ export const extra = {
   /* ---------------------------------------------------------------- Deutsch */
   de: {
     'nav.formc': 'Form-C-Checkliste',
+    'profile.hosting': 'Ich kann Gäste aufnehmen',
+    'profile.saved': 'Profil gespeichert',
     'pwa.install': 'App installieren',
     'pwa.installed': 'App installiert',
     'upload.photo': 'Profilfoto',
@@ -200,6 +212,8 @@ export const extra = {
   /* ------------------------------------------------------------- Português */
   pt: {
     'nav.formc': 'Lista Form C',
+    'profile.hosting': 'Posso receber hóspedes',
+    'profile.saved': 'Perfil guardado',
     'pwa.install': 'Instalar app',
     'pwa.installed': 'App instalada',
     'upload.photo': 'Foto de perfil',
@@ -232,6 +246,8 @@ export const extra = {
   /* --------------------------------------------------------------- Русский */
   ru: {
     'nav.formc': 'Чек-лист Form C',
+    'profile.hosting': 'Я могу принимать гостей',
+    'profile.saved': 'Профиль сохранён',
     'pwa.install': 'Установить приложение',
     'pwa.installed': 'Приложение установлено',
     'upload.photo': 'Фото профиля',
@@ -264,6 +280,8 @@ export const extra = {
   /* --------------------------------------------------------------- العربية */
   ar: {
     'nav.formc': 'قائمة Form C',
+    'profile.hosting': 'يمكنني استضافة الضيوف',
+    'profile.saved': 'تم حفظ الملف',
     'pwa.install': 'تثبيت التطبيق',
     'pwa.installed': 'تم تثبيت التطبيق',
     'upload.photo': 'صورة الملف',
@@ -296,6 +314,8 @@ export const extra = {
   /* ---------------------------------------------------------------- 한국어 */
   ko: {
     'nav.formc': 'Form C 체크리스트',
+    'profile.hosting': '게스트를 받을 수 있습니다',
+    'profile.saved': '프로필이 저장되었습니다',
     'pwa.install': '앱 설치',
     'pwa.installed': '앱이 설치되었습니다',
     'upload.photo': '프로필 사진',
@@ -328,6 +348,8 @@ export const extra = {
   /* ----------------------------------------------------------------日本語 */
   ja: {
     'nav.formc': 'Form C チェックリスト',
+    'profile.hosting': 'ゲストを受け入れられます',
+    'profile.saved': 'プロフィールを保存しました',
     'pwa.install': 'アプリをインストール',
     'pwa.installed': 'アプリをインストールしました',
     'upload.photo': 'プロフィール写真',

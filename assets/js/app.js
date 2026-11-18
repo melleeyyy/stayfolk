@@ -8,7 +8,10 @@ import * as store from './store.js';
 import * as V from './views.js';
 import { icon, esc } from './views.js';
 import { BRAND_MARK, avatar } from './media.js';
-import { HOSTS, hostById } from './data.js';
+import { HOSTS } from './data.js';
+
+// hosts can come from the server (real members) or the bundled seed list
+const hostById = (id) => store.hostById(id);
 
 const $header = document.getElementById('site-header');
 const $footer = document.getElementById('site-footer');
@@ -268,7 +271,7 @@ function closeModal() {
 
 /* --------------------------------------------------------------- events */
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
@@ -294,7 +297,7 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'logout': {
-      store.logout();
+      await store.logout();
       toast(t('nav.logout'));
       go('/');
       break;
@@ -335,7 +338,7 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'clear-photo': {
-      store.clearPhoto(el.dataset.host, el.dataset.kind);
+      await store.clearPhoto(el.dataset.host, el.dataset.kind);
       route();
       break;
     }
@@ -352,7 +355,7 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'respond': {
-      store.respondRequest(el.dataset.id, el.dataset.status);
+      await store.respondRequest(el.dataset.id, el.dataset.status);
       toast(el.dataset.status === 'accepted' ? t('dash.accepted') : t('dash.declined'));
       route();
       break;
@@ -361,7 +364,7 @@ document.addEventListener('click', (e) => {
       const user = store.currentUser();
       const req = store.get().requests.find((r) => r.id === el.dataset.id);
       if (!user || !req) return;
-      const thread = store.openThread({
+      const thread = await store.openThread({
         hostId: req.hostId,
         userId: req.userId,
         guestName: req.guestName,
@@ -370,31 +373,31 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'verify-me': {
-      const entry = store.requestVerification();
+      const entry = await store.requestVerification();
       toast(entry ? t('dash.verify') : t('dash.pending'));
       route();
       break;
     }
     case 'resolve-report': {
-      store.resolveReport(el.dataset.id, 'resolved');
+      await store.resolveReport(el.dataset.id, 'resolved');
       toast(t('admin.approve'));
       route();
       break;
     }
     case 'ban-user': {
-      store.resolveReport(el.dataset.id, 'banned');
+      await store.resolveReport(el.dataset.id, 'banned');
       toast(t('admin.ban'));
       route();
       break;
     }
     case 'verify-approve': {
-      store.resolveVerification(el.dataset.id, 'approved');
+      await store.resolveVerification(el.dataset.id, 'approved');
       toast(t('admin.approve'));
       route();
       break;
     }
     case 'verify-reject': {
-      store.resolveVerification(el.dataset.id, 'rejected');
+      await store.resolveVerification(el.dataset.id, 'rejected');
       toast(t('admin.reject'));
       route();
       break;
@@ -473,7 +476,7 @@ async function handlePhoto(input) {
   try {
     const kind = input.dataset.photo;
     const dataUrl = await readImage(file, kind === 'avatar' ? 640 : 1600);
-    store.setPhoto(input.dataset.host, kind, dataUrl);
+    await store.setPhoto(input.dataset.host, kind, dataUrl);
     toast(t('upload.change'));
     route();
   } catch {
@@ -497,7 +500,7 @@ function applyFilters(form) {
   go(next);
 }
 
-document.addEventListener('submit', (e) => {
+document.addEventListener('submit', async (e) => {
   const form = e.target;
 
   if (form.id === 'hero-search') {
@@ -528,7 +531,7 @@ document.addEventListener('submit', (e) => {
     };
 
     if (mode === 'login') {
-      const user = store.login(fd.get('email'), fd.get('password'));
+      const user = await store.login(fd.get('email'), fd.get('password'));
       if (!user) return showError(t('auth.invalid'));
       toast(t('auth.welcome', { name: user.name }));
       go(user.role === 'admin' ? '/admin' : '/dashboard');
@@ -539,7 +542,12 @@ document.addEventListener('submit', (e) => {
       if (!name || !email || password.length < 6) {
         return showError(`${t('auth.name')} · ${t('auth.email')} · ${t('auth.password')}`);
       }
-      const res = store.signup({ name, email, password, city: fd.get('city') });
+      let res;
+      try {
+        res = await store.signup({ name, email, password, city: fd.get('city') });
+      } catch (err) {
+        return showError(err.message || t('auth.invalid'));
+      }
       if (res.error === 'exists') return showError(t('auth.invalid'));
       toast(t('auth.welcome', { name: res.user.name }));
       go('/dashboard');
@@ -557,7 +565,7 @@ document.addEventListener('submit', (e) => {
       toast(t('search.when'), 'error');
       return;
     }
-    store.createRequest({
+    await store.createRequest({
       hostId,
       from,
       to,
@@ -574,9 +582,34 @@ document.addEventListener('submit', (e) => {
   if (form.id === 'msg-form') {
     e.preventDefault();
     const input = form.querySelector('input[name="text"]');
-    if (store.sendMessage(form.dataset.thread, input.value)) {
+    if (await store.sendMessage(form.dataset.thread, input.value)) {
       input.value = '';
       route();
+    }
+    return;
+  }
+
+  if (form.id === 'profile-form') {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const languages = [...form.querySelectorAll('select[name="languages"] option:checked')].map((o) => o.value);
+    try {
+      await store.updateProfile({
+        name: String(fd.get('name') || '').trim(),
+        city: String(fd.get('city') || '').trim(),
+        bio: String(fd.get('bio') || ''),
+        languages,
+        hosting: {
+          enabled: Boolean(fd.get('hosting')),
+          space: String(fd.get('space') || ''),
+          maxGuests: Number(fd.get('maxGuests')) || 1,
+          womenOnly: Boolean(fd.get('womenOnly')),
+        },
+      });
+      toast(t('profile.saved'));
+      route();
+    } catch (err) {
+      toast(err.message || t('auth.invalid'), 'error');
     }
     return;
   }
@@ -584,7 +617,7 @@ document.addEventListener('submit', (e) => {
   if (form.id === 'report-form') {
     e.preventDefault();
     const fd = new FormData(form);
-    store.addReport({
+    await store.addReport({
       targetType: 'host',
       targetId: form.dataset.id,
       targetName: form.dataset.name,
@@ -627,7 +660,23 @@ window.addEventListener('appinstalled', () => {
   toast(t('pwa.installed'));
 });
 
-function boot() {
+/** Poll for new messages and requests while the app is open. */
+function startPolling() {
+  if (!store.isRemote()) return;
+  setInterval(async () => {
+    const active = document.activeElement;
+    if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return;
+    if (!store.currentUser()) return;
+    const changed = await store.sync();
+    if (!changed) return;
+    const path = currentPath();
+    if (path === 'messages' || path === 'dashboard') route();
+  }, 5000);
+}
+
+async function boot() {
+  await store.init();
+
   const s = store.get();
   setLang(s.lang || 'en');
   applyLanguage();
@@ -636,6 +685,7 @@ function boot() {
   if (!location.hash) location.hash = '#/';
   route();
   syncInstall();
+  startPolling();
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -651,7 +701,10 @@ function boot() {
   }
 }
 
-boot();
+boot().catch((err) => {
+  console.error('[stayfolk] boot failed', err);
+  route();
+});
 
 // expose a tiny debug handle for the smoke test
 window.__stayfolk = { store, route, HOSTS };

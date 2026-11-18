@@ -1,14 +1,16 @@
 /**
- * StayFolk — reference API server.
+ * StayFolk — application server.
  *
- * A deliberately small, dependency-free Node server that mirrors what the
- * browser demo does in localStorage. It is NOT deployed to GitHub Pages;
- * it exists so the static demo has a real backend to grow into.
+ * A real, self-contained Node server with no dependencies: accounts, sessions,
+ * profiles, photo uploads, stay requests and two-way messaging, all persisted
+ * to data/db.json. Run it with `node server/index.js` and the whole site works
+ * for real people on different devices.
  *
- *   node server/index.js            → http://localhost:8787
- *   PORT=3000 node server/index.js
- *
- * Data is persisted to server/data.json (created on first write).
+ * Design notes
+ *  - zero dependencies, so it runs anywhere Node 20 runs
+ *  - scrypt password hashing, httpOnly cookie sessions
+ *  - photos are written to data/uploads and served as static files
+ *  - one JSON file holds the database; fine up to a few thousand users
  */
 
 'use strict';
@@ -17,48 +19,140 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { pathToFileURL } = require('node:url');
 
+const ROOT = path.join(__dirname, '..');
+const DATA_DIR = path.join(__dirname, 'data');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PORT = Number(process.env.PORT) || 8787;
-const DATA_FILE = path.join(__dirname, 'data.json');
-const PUBLIC_DIR = path.join(__dirname, '..');
+const COOKIE = 'sf_sid';
 
-/* ------------------------------------------------------------- storage */
+/* ------------------------------------------------------------------ store */
 
 const emptyDB = () => ({
   users: [],
-  hosts: [],
+  sessions: {},
   requests: [],
   threads: [],
   messages: [],
+  reviews: [],
   reports: [],
 });
 
 let db = emptyDB();
 
-try {
-  if (fs.existsSync(DATA_FILE)) {
-    db = { ...emptyDB(), ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) };
-  }
-} catch (err) {
-  console.warn('[stayfolk] could not read data.json, starting fresh:', err.message);
+function ensureDirs() {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-let writeTimer = null;
-function save() {
-  clearTimeout(writeTimer);
-  writeTimer = setTimeout(() => {
-    try {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-    } catch (err) {
-      console.error('[stayfolk] write failed:', err.message);
+function loadDB() {
+  ensureDirs();
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      db = { ...emptyDB(), ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) };
     }
-  }, 50);
+  } catch (err) {
+    console.error('[stayfolk] db.json unreadable, starting fresh:', err.message);
+    db = emptyDB();
+  }
 }
 
-/* ---------------------------------------------------------------- auth */
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const tmp = DB_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(db));
+      fs.renameSync(tmp, DB_FILE);
+    } catch (err) {
+      console.error('[stayfolk] save failed:', err.message);
+    }
+  }, 60);
+}
 
-const sessions = new Map(); // token -> userId
-const id = (p) => `${p}_${crypto.randomBytes(6).toString('hex')}`;
+const uid = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`;
+const now = () => new Date().toISOString();
+
+/* --------------------------------------------------------------- seed data */
+
+let SEED = { HOSTS: [], CITIES: [] };
+
+async function loadSeed() {
+  try {
+    const mod = await import(pathToFileURL(path.join(ROOT, 'assets', 'js', 'data.js')).href);
+    SEED = { HOSTS: mod.HOSTS || [], CITIES: mod.CITIES || [] };
+    console.log(`[stayfolk] ${SEED.HOSTS.length} seed hosts loaded`);
+  } catch (err) {
+    console.warn('[stayfolk] seed hosts unavailable:', err.message);
+  }
+}
+
+const cityOf = (slug) => SEED.CITIES.find((c) => c.slug === slug) || null;
+
+/** Normalise a seed host into the shape the API returns. */
+function seedHost(h) {
+  const city = cityOf(h.citySlug);
+  return {
+    id: h.id,
+    name: h.name,
+    citySlug: h.citySlug,
+    cityName: city ? city.name : '',
+    country: city ? city.country : '',
+    verified: h.verified,
+    womenOnly: h.womenOnly,
+    rating: h.rating,
+    reviewCount: h.reviewCount,
+    responseRate: h.responseRate,
+    joined: h.joined,
+    languages: h.languages,
+    maxGuests: h.maxGuests,
+    space: h.space,
+    tags: h.tags,
+    bio: h.bio,
+    rules: h.rules,
+    avatar: null,
+    cover: null,
+    isSeed: true,
+  };
+}
+
+/** A registered member who has switched hosting on. */
+function userHost(u) {
+  const hosting = u.hosting || {};
+  return {
+    id: u.id,
+    name: u.name,
+    citySlug: null,
+    cityName: u.city || '',
+    country: '',
+    verified: Boolean(u.verified),
+    womenOnly: Boolean(hosting.womenOnly),
+    rating: u.rating || 5,
+    reviewCount: db.reviews.filter((r) => r.hostId === u.id).length,
+    responseRate: 100,
+    joined: (u.createdAt || now()).slice(0, 7),
+    languages: u.languages && u.languages.length ? u.languages : ['English'],
+    maxGuests: hosting.maxGuests || 1,
+    space: hosting.space || 'Spare room',
+    tags: hosting.tags || [],
+    bio: u.bio || '',
+    rules: hosting.rules || [],
+    avatar: u.avatar || null,
+    cover: u.cover || null,
+    isSeed: false,
+  };
+}
+
+function allHosts() {
+  const members = db.users.filter((u) => u.hosting && u.hosting.enabled).map(userHost);
+  return [...SEED.HOSTS.map(seedHost), ...members];
+}
+
+const findHost = (id) => allHosts().find((h) => h.id === id) || null;
+
+/* ------------------------------------------------------------------- auth */
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(String(password), salt, 32).toString('hex');
@@ -66,46 +160,87 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
 }
 
 function verifyPassword(password, stored) {
-  const [salt, hash] = String(stored).split(':');
+  const [salt, hash] = String(stored || '').split(':');
   if (!salt || !hash) return false;
   const candidate = crypto.scryptSync(String(password), salt, 32);
   const expected = Buffer.from(hash, 'hex');
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
 }
 
-function userFrom(req) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || '').split(';').forEach((part) => {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  });
+  return out;
+}
+
+function currentUser(req) {
+  const token = parseCookies(req)[COOKIE];
   if (!token) return null;
-  const userId = sessions.get(token);
-  return db.users.find((u) => u.id === userId) || null;
+  const session = db.sessions[token];
+  if (!session) return null;
+  if (Date.now() - session.at > 1000 * 60 * 60 * 24 * 60) {
+    delete db.sessions[token];
+    return null;
+  }
+  return db.users.find((u) => u.id === session.userId) || null;
+}
+
+function startSession(res, userId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  db.sessions[token] = { userId, at: Date.now() };
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 60}${secure}`
+  );
+  save();
+  return token;
+}
+
+function endSession(req, res) {
+  const token = parseCookies(req)[COOKIE];
+  if (token) delete db.sessions[token];
+  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  save();
 }
 
 const publicUser = (u) => ({
-  id: u.id, name: u.name, email: u.email, city: u.city, verified: u.verified, hostId: u.hostId || null,
+  id: u.id,
+  name: u.name,
+  email: u.email,
+  city: u.city || '',
+  bio: u.bio || '',
+  languages: u.languages || [],
+  avatar: u.avatar || null,
+  cover: u.cover || null,
+  verified: Boolean(u.verified),
+  role: u.role || 'member',
+  hosting: u.hosting || { enabled: false, space: '', maxGuests: 1, womenOnly: false, tags: [], rules: [] },
+  createdAt: u.createdAt,
 });
 
-/* -------------------------------------------------------------- helpers */
+/* ---------------------------------------------------------------- helpers */
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);
 }
 
-function readBody(req) {
+function readBody(req, limit = 8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let raw = '';
     req.on('data', (chunk) => {
       raw += chunk;
-      if (raw.length > 1e6) {
+      if (raw.length > limit) {
         reject(new Error('payload too large'));
         req.destroy();
       }
@@ -122,246 +257,439 @@ function readBody(req) {
   });
 }
 
+/** Very small in-memory rate limiter for the auth endpoints. */
+const attempts = new Map();
+function tooManyAttempts(ip) {
+  const rec = attempts.get(ip) || { count: 0, at: Date.now() };
+  if (Date.now() - rec.at > 15 * 60 * 1000) {
+    attempts.set(ip, { count: 1, at: Date.now() });
+    return false;
+  }
+  rec.count += 1;
+  attempts.set(ip, rec);
+  return rec.count > 20;
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
-  '.webmanifest': 'application/manifest+json',
 };
 
 function serveStatic(req, res, pathname) {
-  const rel = pathname === '/' ? '/index.html' : pathname;
-  const file = path.normalize(path.join(PUBLIC_DIR, rel));
-  if (!file.startsWith(PUBLIC_DIR)) return json(res, 403, { error: 'forbidden' });
+  const rel = pathname === '/' ? '/index.html' : decodeURIComponent(pathname);
+  const file = path.normalize(path.join(ROOT, rel));
+
+  if (!file.startsWith(ROOT) || file.startsWith(DATA_DIR)) {
+    return json(res, 403, { error: 'forbidden' });
+  }
 
   fs.readFile(file, (err, buf) => {
     if (err) {
-      // SPA fallback for anything that is not a file
-      return fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (e2, html) => {
+      // single-page app: everything unknown falls back to index.html
+      return fs.readFile(path.join(ROOT, 'index.html'), (e2, html) => {
         if (e2) return json(res, 404, { error: 'not found' });
-        res.writeHead(200, { 'Content-Type': MIME['.html'] });
-        res.end(html);
+        res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
+        res.end(withServerFlag(html));
       });
     }
+    const ext = path.extname(file);
     res.writeHead(200, {
-      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-      'Cache-Control': path.extname(file) === '.html' ? 'no-cache' : 'public, max-age=3600',
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=600',
+    });
+    res.end(ext === '.html' ? withServerFlag(buf) : buf);
+  });
+}
+
+/**
+ * Tell the browser a real backend is present, so the app skips its probe
+ * request. The static build has no such tag and runs in demo mode.
+ */
+function withServerFlag(html) {
+  return Buffer.from(
+    String(html).replace('<head>', '<head>\n  <meta name="stayfolk-server" content="1" />')
+  );
+}
+
+function serveUpload(res, pathname) {
+  const name = path.basename(pathname);
+  const file = path.join(UPLOAD_DIR, name);
+  fs.readFile(file, (err, buf) => {
+    if (err) return json(res, 404, { error: 'not found' });
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'image/jpeg',
+      'Cache-Control': 'public, max-age=31536000, immutable',
     });
     res.end(buf);
   });
 }
 
-/* ---------------------------------------------------------------- routes */
+/* ------------------------------------------------------------------ views */
 
-async function handleApi(req, res, pathname, searchParams) {
+function threadsFor(user) {
+  const myHostId = user.hosting && user.hosting.enabled ? user.id : null;
+  return db.threads.filter((t) => t.userId === user.id || (myHostId && t.hostId === myHostId));
+}
+
+function messagesForThreads(threads) {
+  const ids = new Set(threads.map((t) => t.id));
+  return db.messages.filter((m) => ids.has(m.threadId));
+}
+
+function bootstrapFor(user) {
+  const hosts = allHosts();
+  if (!user) {
+    return { me: null, hosts, requests: [], threads: [], messages: [], reviews: db.reviews.slice(-60) };
+  }
+  const myHostId = user.hosting && user.hosting.enabled ? user.id : null;
+  const requests = db.requests.filter((r) => r.userId === user.id || (myHostId && r.hostId === myHostId));
+  const threads = threadsFor(user);
+  return {
+    me: publicUser(user),
+    hosts,
+    requests: requests.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    threads,
+    messages: messagesForThreads(threads),
+    reviews: db.reviews.slice(-60),
+  };
+}
+
+/* ----------------------------------------------------------------- routes */
+
+async function handleApi(req, res, url) {
+  const { pathname, searchParams } = url;
   const method = req.method;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 
   if (method === 'OPTIONS') return json(res, 204, {});
-
-  /* health */
   if (pathname === '/api/health') {
-    return json(res, 200, { ok: true, service: 'stayfolk', users: db.users.length, hosts: db.hosts.length });
+    return json(res, 200, { ok: true, users: db.users.length, messages: db.messages.length });
   }
 
-  /* signup */
+  /* ---- auth ---- */
   if (pathname === '/api/auth/signup' && method === 'POST') {
+    if (tooManyAttempts(ip)) return json(res, 429, { error: 'too many attempts, try later' });
     const body = await readBody(req);
-    const { name, email, password, city } = body;
-    if (!name || !email || !password || String(password).length < 6) {
-      return json(res, 422, { error: 'name, email and a password of 6+ characters are required' });
+    const name = String(body.name || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+
+    if (!name || !email || password.length < 6) {
+      return json(res, 422, { error: 'Name, email and a password of at least 6 characters are required.' });
     }
-    if (db.users.some((u) => u.email.toLowerCase() === String(email).toLowerCase())) {
-      return json(res, 409, { error: 'email already registered' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return json(res, 422, { error: 'That email address does not look right.' });
     }
+    if (db.users.some((u) => u.email === email)) {
+      return json(res, 409, { error: 'An account with that email already exists.' });
+    }
+
     const user = {
-      id: id('u'),
-      name: String(name).trim(),
-      email: String(email).trim(),
+      id: uid('u'),
+      name,
+      email,
       password: hashPassword(password),
-      city: city || '',
+      city: String(body.city || '').trim(),
+      bio: '',
+      languages: [],
+      avatar: null,
+      cover: null,
       verified: false,
-      createdAt: new Date().toISOString(),
+      role: db.users.length === 0 ? 'admin' : 'member',
+      hosting: { enabled: false, space: '', maxGuests: 1, womenOnly: false, tags: [], rules: [] },
+      createdAt: now(),
     };
     db.users.push(user);
+    startSession(res, user.id);
     save();
-    const token = crypto.randomBytes(24).toString('hex');
-    sessions.set(token, user.id);
-    return json(res, 201, { token, user: publicUser(user) });
+    return json(res, 201, { user: publicUser(user) });
   }
 
-  /* login */
   if (pathname === '/api/auth/login' && method === 'POST') {
+    if (tooManyAttempts(ip)) return json(res, 429, { error: 'too many attempts, try later' });
     const body = await readBody(req);
-    const user = db.users.find(
-      (u) => u.email.toLowerCase() === String(body.email || '').toLowerCase()
-    );
+    const email = String(body.email || '').trim().toLowerCase();
+    const user = db.users.find((u) => u.email === email);
     if (!user || !verifyPassword(body.password, user.password)) {
-      return json(res, 401, { error: 'invalid credentials' });
+      return json(res, 401, { error: 'Email or password is incorrect.' });
     }
-    const token = crypto.randomBytes(24).toString('hex');
-    sessions.set(token, user.id);
-    return json(res, 200, { token, user: publicUser(user) });
-  }
-
-  /* me */
-  if (pathname === '/api/me' && method === 'GET') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
+    startSession(res, user.id);
     return json(res, 200, { user: publicUser(user) });
   }
 
-  /* hosts */
-  if (pathname === '/api/hosts' && method === 'GET') {
-    const city = (searchParams.get('city') || '').toLowerCase();
-    const language = searchParams.get('language') || '';
-    const verified = searchParams.get('verified') === '1';
-    const women = searchParams.get('women') === '1';
-
-    const list = db.hosts.filter((h) => {
-      if (city && !String(h.city || '').toLowerCase().includes(city)) return false;
-      if (language && !(h.languages || []).includes(language)) return false;
-      if (verified && !h.verified) return false;
-      if (women && !h.womenOnly) return false;
-      return true;
-    });
-    return json(res, 200, { hosts: list, count: list.length });
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    endSession(req, res);
+    return json(res, 200, { ok: true });
   }
 
-  if (pathname.startsWith('/api/hosts/') && method === 'GET') {
-    const hostId = pathname.split('/')[3];
-    const host = db.hosts.find((h) => h.id === hostId);
-    if (!host) return json(res, 404, { error: 'host not found' });
-    return json(res, 200, { host });
+  /* ---- bootstrap ---- */
+  if (pathname === '/api/bootstrap' && method === 'GET') {
+    return json(res, 200, bootstrapFor(currentUser(req)));
   }
 
-  /* requests */
-  if (pathname === '/api/requests' && method === 'POST') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
+  /* ---- me ---- */
+  const me = currentUser(req);
+
+  if (pathname === '/api/me' && method === 'PATCH') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
     const body = await readBody(req);
-    if (!body.hostId || !body.from || !body.to || !body.message) {
-      return json(res, 422, { error: 'hostId, from, to and message are required' });
+
+    if (body.name !== undefined) me.name = String(body.name).trim().slice(0, 80) || me.name;
+    if (body.city !== undefined) me.city = String(body.city).trim().slice(0, 80);
+    if (body.bio !== undefined) me.bio = String(body.bio).slice(0, 2000);
+    if (body.languages !== undefined) {
+      me.languages = (Array.isArray(body.languages) ? body.languages : []).slice(0, 12).map((l) => String(l).slice(0, 30));
     }
+    if (body.hosting !== undefined && typeof body.hosting === 'object') {
+      const h = body.hosting;
+      me.hosting = {
+        enabled: Boolean(h.enabled),
+        space: String(h.space || '').slice(0, 120),
+        maxGuests: Math.min(6, Math.max(1, Number(h.maxGuests) || 1)),
+        womenOnly: Boolean(h.womenOnly),
+        tags: (Array.isArray(h.tags) ? h.tags : []).slice(0, 8).map((t) => String(t).slice(0, 30)),
+        rules: (Array.isArray(h.rules) ? h.rules : []).slice(0, 8).map((t) => String(t).slice(0, 120)),
+      };
+    }
+    save();
+    return json(res, 200, { user: publicUser(me) });
+  }
+
+  if (pathname === '/api/me/photo' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const body = await readBody(req);
+    const kind = body.kind === 'cover' ? 'cover' : 'avatar';
+    const dataUrl = String(body.dataUrl || '');
+    const match = dataUrl.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) return json(res, 422, { error: 'Unsupported image format.' });
+
+    const buf = Buffer.from(match[2], 'base64');
+    if (buf.length > 6 * 1024 * 1024) return json(res, 413, { error: 'Image is too large.' });
+
+    const ext = match[1] === 'png' ? '.png' : match[1] === 'webp' ? '.webp' : '.jpg';
+    const filename = `${me.id}-${kind}-${Date.now()}${ext}`;
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), buf);
+
+    const previous = me[kind];
+    me[kind] = `/uploads/${filename}`;
+    if (previous && previous.startsWith('/uploads/')) {
+      try {
+        fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(previous)));
+      } catch {
+        /* old file already gone */
+      }
+    }
+    save();
+    return json(res, 200, { user: publicUser(me), url: me[kind] });
+  }
+
+  if (pathname === '/api/me/photo' && method === 'DELETE') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const kind = searchParams.get('kind') === 'cover' ? 'cover' : 'avatar';
+    const previous = me[kind];
+    me[kind] = null;
+    if (previous && previous.startsWith('/uploads/')) {
+      try {
+        fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(previous)));
+      } catch {
+        /* ignore */
+      }
+    }
+    save();
+    return json(res, 200, { user: publicUser(me) });
+  }
+
+  /* ---- requests ---- */
+  if (pathname === '/api/requests' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const body = await readBody(req);
+    const host = findHost(String(body.hostId || ''));
+    if (!host) return json(res, 404, { error: 'Host not found.' });
+    if (host.id === me.id) return json(res, 422, { error: 'You cannot request your own place.' });
+    if (!body.from || !body.to || !body.message) {
+      return json(res, 422, { error: 'Dates and a message are required.' });
+    }
+
+    const open = db.requests.filter(
+      (r) => r.userId === me.id && r.hostId === host.id && r.status === 'pending'
+    ).length;
+    if (open >= 3) return json(res, 429, { error: 'You already have open requests with this host.' });
+
     const request = {
-      id: id('r'),
-      hostId: body.hostId,
-      userId: user.id,
-      guestName: user.name,
-      from: body.from,
-      to: body.to,
-      guests: Number(body.guests) || 1,
+      id: uid('r'),
+      hostId: host.id,
+      hostName: host.name,
+      userId: me.id,
+      guestName: me.name,
+      from: String(body.from),
+      to: String(body.to),
+      guests: Math.min(6, Math.max(1, Number(body.guests) || 1)),
       message: String(body.message).slice(0, 4000),
       status: 'pending',
-      createdAt: new Date().toISOString(),
+      createdAt: now(),
     };
     db.requests.unshift(request);
     save();
     return json(res, 201, { request });
   }
 
-  if (pathname === '/api/requests' && method === 'GET') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
-    const outgoing = db.requests.filter((r) => r.userId === user.id);
-    const incoming = user.hostId ? db.requests.filter((r) => r.hostId === user.hostId) : [];
-    return json(res, 200, { outgoing, incoming });
-  }
-
   if (pathname.startsWith('/api/requests/') && method === 'PATCH') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
-    const requestId = pathname.split('/')[3];
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const id = pathname.split('/')[3];
     const body = await readBody(req);
-    const request = db.requests.find((r) => r.id === requestId);
-    if (!request) return json(res, 404, { error: 'request not found' });
-    if (request.hostId !== user.hostId) return json(res, 403, { error: 'only the host can respond' });
+    const request = db.requests.find((r) => r.id === id);
+    if (!request) return json(res, 404, { error: 'Request not found.' });
+    if (request.hostId !== me.id) return json(res, 403, { error: 'Only the host can answer.' });
     if (!['accepted', 'declined'].includes(body.status)) {
-      return json(res, 422, { error: 'status must be accepted or declined' });
+      return json(res, 422, { error: 'Status must be accepted or declined.' });
     }
     request.status = body.status;
-    request.respondedAt = new Date().toISOString();
+    request.respondedAt = now();
     save();
     return json(res, 200, { request });
   }
 
-  /* threads + messages */
-  if (pathname === '/api/threads' && method === 'GET') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
-    const threads = db.threads.filter((t) => (user.hostId ? t.hostId === user.hostId : t.userId === user.id));
-    return json(res, 200, { threads });
+  /* ---- threads + messages ---- */
+  if (pathname === '/api/threads' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const body = await readBody(req);
+    const hostId = String(body.hostId || '');
+    const guestId = String(body.userId || me.id);
+
+    if (me.id !== hostId && me.id !== guestId) {
+      return json(res, 403, { error: 'Not your conversation.' });
+    }
+
+    let thread = db.threads.find((t) => t.hostId === hostId && t.userId === guestId);
+    if (!thread) {
+      const host = findHost(hostId);
+      const guest = db.users.find((u) => u.id === guestId);
+      thread = {
+        id: uid('t'),
+        hostId,
+        userId: guestId,
+        hostName: host ? host.name : 'Host',
+        guestName: guest ? guest.name : 'Guest',
+        updatedAt: now(),
+      };
+      db.threads.unshift(thread);
+      save();
+    }
+    return json(res, 200, { thread });
   }
 
   if (pathname.startsWith('/api/threads/') && pathname.endsWith('/messages')) {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
     const threadId = pathname.split('/')[3];
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
+    const thread = db.threads.find((t) => t.id === threadId);
+    if (!thread) return json(res, 404, { error: 'Conversation not found.' });
+    if (thread.userId !== me.id && thread.hostId !== me.id) {
+      return json(res, 403, { error: 'Not your conversation.' });
+    }
 
     if (method === 'GET') {
-      const messages = db.messages.filter((m) => m.threadId === threadId);
-      return json(res, 200, { messages });
+      return json(res, 200, { messages: db.messages.filter((m) => m.threadId === threadId) });
     }
+
     if (method === 'POST') {
       const body = await readBody(req);
-      if (!body.text) return json(res, 422, { error: 'text is required' });
-      const message = {
-        id: id('m'),
-        threadId,
-        senderId: user.id,
-        text: String(body.text).slice(0, 4000),
-        at: new Date().toISOString(),
-      };
+      const text = String(body.text || '').trim().slice(0, 4000);
+      if (!text) return json(res, 422, { error: 'Message is empty.' });
+      const message = { id: uid('m'), threadId, senderId: me.id, text, at: now() };
       db.messages.push(message);
+      thread.updatedAt = message.at;
       save();
       return json(res, 201, { message });
     }
   }
 
-  /* reports */
+  /* ---- sync (polling) ---- */
+  if (pathname === '/api/sync' && method === 'GET') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const since = searchParams.get('since') || '1970-01-01T00:00:00.000Z';
+    const threads = threadsFor(me);
+    const ids = new Set(threads.map((t) => t.id));
+    const messages = db.messages.filter((m) => ids.has(m.threadId) && m.at > since);
+    const myHostId = me.hosting && me.hosting.enabled ? me.id : null;
+    const requests = db.requests.filter(
+      (r) => (r.userId === me.id || (myHostId && r.hostId === myHostId)) && (r.createdAt > since || r.respondedAt > since)
+    );
+    return json(res, 200, { messages, requests, threads, serverTime: now() });
+  }
+
+  /* ---- reviews + reports ---- */
+  if (pathname === '/api/reviews' && method === 'POST') {
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
+    const body = await readBody(req);
+    const host = findHost(String(body.hostId || ''));
+    if (!host) return json(res, 404, { error: 'Host not found.' });
+    const review = {
+      id: uid('rev'),
+      hostId: host.id,
+      authorId: me.id,
+      author: me.name,
+      rating: Math.min(5, Math.max(1, Number(body.rating) || 5)),
+      date: now().slice(0, 7),
+      text: String(body.text || '').slice(0, 2000),
+    };
+    db.reviews.push(review);
+    save();
+    return json(res, 201, { review });
+  }
+
   if (pathname === '/api/reports' && method === 'POST') {
-    const user = userFrom(req);
-    if (!user) return json(res, 401, { error: 'unauthorised' });
+    if (!me) return json(res, 401, { error: 'Sign in first.' });
     const body = await readBody(req);
     const report = {
-      id: id('rp'),
-      reporterId: user.id,
-      targetType: body.targetType || 'host',
-      targetId: body.targetId || '',
-      reason: body.reason || '',
-      detail: body.detail || '',
+      id: uid('rp'),
+      reporterId: me.id,
+      targetType: String(body.targetType || 'host'),
+      targetId: String(body.targetId || ''),
+      targetName: String(body.targetName || ''),
+      reason: String(body.reason || '').slice(0, 200),
+      detail: String(body.detail || '').slice(0, 2000),
       status: 'open',
-      createdAt: new Date().toISOString(),
+      createdAt: now(),
     };
     db.reports.unshift(report);
     save();
     return json(res, 201, { report });
   }
 
-  return json(res, 404, { error: 'unknown endpoint' });
+  return json(res, 404, { error: 'Unknown endpoint.' });
 }
 
-/* ---------------------------------------------------------------- server */
+/* ------------------------------------------------------------------ server */
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   try {
-    if (url.pathname.startsWith('/api/')) {
-      return await handleApi(req, res, url.pathname, url.searchParams);
-    }
+    if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
+    if (url.pathname.startsWith('/uploads/')) return serveUpload(res, url.pathname);
     return serveStatic(req, res, url.pathname);
   } catch (err) {
-    return json(res, 400, { error: err.message || 'bad request' });
+    console.error('[stayfolk]', err);
+    return json(res, 400, { error: err.message || 'Bad request.' });
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`StayFolk API + static demo → http://localhost:${PORT}`);
-  console.log(`Data file: ${DATA_FILE}`);
-});
+(async () => {
+  loadDB();
+  await loadSeed();
+  server.listen(PORT, () => {
+    console.log(`StayFolk running → http://localhost:${PORT}`);
+    console.log(`Database: ${DB_FILE}`);
+  });
+})();
 
 module.exports = server;

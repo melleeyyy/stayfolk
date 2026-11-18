@@ -5,12 +5,20 @@
  */
 
 import { t, getLang } from './i18n.js';
-import {
-  HOSTS, CITIES, STATS, LANGUAGES,
-  hostById, cityBySlug, hostsInCity, reviewsFor, referencesFor,
-} from './data.js';
+import { CITIES, STATS, LANGUAGES, cityBySlug, reviewsFor, referencesFor } from './data.js';
 import { cover, avatar } from './media.js';
 import * as store from './store.js';
+
+const hostById = (id) => store.hostById(id);
+const allHosts = () => store.hosts();
+
+/** "Kochi, India" — works for seed hosts and for members who host. */
+const placeOf = (host) => {
+  const city = host.citySlug ? cityBySlug(host.citySlug) : null;
+  const name = host.cityName || (city ? city.name : '');
+  const country = host.country || (city ? city.country : '');
+  return [name, country].filter(Boolean).join(', ');
+};
 
 /* ------------------------------------------------------------- utilities */
 
@@ -78,7 +86,6 @@ const badge = (kind, label, ic) =>
 /* -------------------------------------------------------------- fragments */
 
 export function hostCard(host) {
-  const city = cityBySlug(host.citySlug);
   return `
   <a class="host-card" href="#/host/${host.id}">
     <div class="host-card__media">
@@ -93,7 +100,7 @@ export function hostCard(host) {
         <span class="host-card__name">${esc(host.name)}</span>
         ${stars(host.rating)}
       </div>
-      <span class="host-card__place">${icon('pin')}${esc(city ? `${city.name}, ${city.country}` : '')}</span>
+      <span class="host-card__place">${icon('pin')}${esc(placeOf(host))}</span>
       <p class="small muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
         ${esc(host.space)} · ${esc(host.languages.slice(0, 2).join(', '))}
       </p>
@@ -107,7 +114,7 @@ export function hostCard(host) {
 }
 
 export function cityCard(city) {
-  const n = hostsInCity(city.slug).length;
+  const n = allHosts().filter((h) => h.citySlug === city.slug).length;
   return `
   <a class="city-card" href="#/city/${city.slug}">
     <span class="city-card__img"><img src="${cover('city-' + city.slug, 600, 750)}" alt="" loading="lazy" /></span>
@@ -128,7 +135,7 @@ const empty = (title, text, ic = 'search') => `
 /* ------------------------------------------------------------------ home */
 
 export function homeView() {
-  const featured = ['h1', 'h4', 'h11', 'h9', 'h15', 'h7', 'h14', 'h17'].map(hostById).filter(Boolean);
+  const featured = ['h1', 'h4', 'h11', 'h9', 'h15', 'h7', 'h14', 'h17'].map((id) => hostById(id)).filter(Boolean);
   const cityOrder = ['kochi', 'lisbon', 'tokyo', 'barcelona', 'bangkok', 'mexico-city', 'berlin', 'jaipur', 'seoul', 'cape-town', 'istanbul', 'paris'];
   const cities = cityOrder.map(cityBySlug).filter(Boolean);
 
@@ -254,16 +261,10 @@ export function homeView() {
 
 export function exploreView(q = {}) {
   const { city = '', guests = '', language = '', verified = false, women = false, sort = 'rating' } = q;
-  let list = HOSTS.slice();
+  let list = allHosts().slice();
   if (city) {
     const needle = city.toLowerCase().trim();
-    list = list.filter((h) => {
-      const c = cityBySlug(h.citySlug);
-      return (
-        h.citySlug.includes(needle) ||
-        (c && (c.name.toLowerCase().includes(needle) || c.country.toLowerCase().includes(needle)))
-      );
-    });
+    list = list.filter((h) => placeOf(h).toLowerCase().includes(needle));
   }
   if (language) list = list.filter((h) => h.languages.includes(language));
   if (verified) list = list.filter((h) => h.verified);
@@ -343,17 +344,19 @@ export function exploreView(q = {}) {
 export function hostView(id) {
   const host = hostById(id);
   if (!host) return notFoundView();
-  const city = cityBySlug(host.citySlug);
+  const place = placeOf(host);
   const reviews = [...store.get().reviews.filter((r) => r.hostId === id), ...reviewsFor(id)];
   const refs = referencesFor(id);
-  const nearby = HOSTS.filter((h) => h.citySlug === host.citySlug && h.id !== host.id).slice(0, 3);
+  const nearby = allHosts()
+    .filter((h) => h.id !== host.id && placeOf(h) && placeOf(h) === place)
+    .slice(0, 3);
   const user = store.currentUser();
 
   return `
   <div class="container profile-hero">
     <div class="breadcrumb">
       <a href="#/explore">${esc(t('nav.explore'))}</a>${icon('chevron')}
-      <a href="#/city/${host.citySlug}">${esc(city ? city.name : '')}</a>${icon('chevron')}
+      ${host.citySlug ? `<a href="#/city/${host.citySlug}">${esc(placeOf(host))}</a>${icon('chevron')}` : `<span>${esc(placeOf(host))}</span>${icon('chevron')}`}
       <span>${esc(host.name)}</span>
     </div>
     <div class="profile-cover"><img src="${coverFor(host, 1200, 400)}" alt="" /></div>
@@ -364,7 +367,7 @@ export function hostView(id) {
         <div class="row row--wrap" style="gap:8px">
           ${host.verified ? badge('verified', t('host.verified'), 'shield') : badge('', t('host.unverified'), 'lock')}
           ${host.womenOnly ? badge('women', t('host.women'), 'users') : ''}
-          <span class="badge">${icon('pin')}${esc(city ? `${city.name}, ${city.country}` : '')}</span>
+          <span class="badge">${icon('pin')}${esc(place)}</span>
           <span class="badge">${icon('star')}${host.rating} · ${host.reviewCount}</span>
         </div>
       </div>
@@ -476,7 +479,7 @@ export function citiesView() {
 export function cityView(slug) {
   const city = cityBySlug(slug);
   if (!city) return notFoundView();
-  const hosts = hostsInCity(slug);
+  const hosts = allHosts().filter((h) => h.citySlug === slug);
   return `
   <div class="page-head"><div class="container">
     <div class="breadcrumb"><a href="#/cities">${esc(t('nav.cities'))}</a>${icon('chevron')}<span>${esc(city.name)}</span></div>
@@ -602,9 +605,12 @@ export function dashboardView(tab = 'requests') {
   const user = store.currentUser();
   if (!user) return authView('login');
 
-  const isHost = Boolean(user.hostId);
-  const host = user.hostId ? hostById(user.hostId) : null;
-  const incoming = isHost ? store.requestsForHost(user.hostId) : [];
+  const hosting = user.hosting || { enabled: Boolean(user.hostId), space: '', maxGuests: 1, womenOnly: false };
+  const hostingEnabled = Boolean(hosting.enabled);
+  const isHost = hostingEnabled;
+  const myHost = store.hostById(user.id) || (user.hostId ? hostById(user.hostId) : null);
+  const myHostId = user.hostId || (hostingEnabled ? user.id : null);
+  const incoming = myHostId ? store.requestsForHost(myHostId) : [];
   const outgoing = store.requestsForUser(user.id);
   const list = isHost ? incoming : outgoing;
   const pending = list.filter((r) => r.status === 'pending').length;
@@ -647,7 +653,7 @@ export function dashboardView(tab = 'requests') {
     <nav class="dash-nav">
       <a href="#/dashboard" class="${tab === 'requests' ? 'is-active' : ''}">${icon('message')}${esc(isHost ? t('dash.incoming') : t('dash.trips'))}</a>
       ${isHost ? `<a href="#/dashboard/upcoming" class="${tab === 'upcoming' ? 'is-active' : ''}">${icon('calendar')}${esc(t('dash.upcoming'))}</a>` : ''}
-      ${isHost ? `<a href="#/dashboard/profile" class="${tab === 'profile' ? 'is-active' : ''}">${icon('users')}${esc(t('dash.profile'))}</a>` : ''}
+      <a href="#/dashboard/profile" class="${tab === 'profile' ? 'is-active' : ''}">${icon('users')}${esc(t('nav.profile'))}</a>
       <a href="#/messages">${icon('message')}${esc(t('msg.title'))}</a>
       ${user.role === 'admin' ? `<a href="#/admin">${icon('shield')}${esc(t('nav.admin'))}</a>` : ''}
       <button data-action="logout">${icon('logout')}${esc(t('nav.logout'))}</button>
@@ -670,48 +676,76 @@ export function dashboardView(tab = 'requests') {
       </div>
 
       ${tab === 'profile' ? `
-        <div class="card">
-          <div class="row row--between" style="margin-bottom:16px">
-            <h3>${esc(t('dash.profile'))}</h3>
-            ${host ? `<a class="btn btn--outline btn--sm" href="#/host/${host.id}">${icon('eye')}${esc(t('nav.profile'))}</a>` : ''}
+        <form class="card" id="profile-form" style="display:grid;gap:20px">
+          <div class="row row--between" style="flex-wrap:wrap;gap:10px">
+            <h3>${esc(t('nav.profile'))}</h3>
+            ${myHost ? `<a class="btn btn--outline btn--sm" href="#/host/${user.id}">${icon('eye')}${esc(t('host.share'))}</a>` : ''}
           </div>
-          ${host ? `
-            <div class="uploader" style="margin-bottom:20px">
-              <div class="photo-block">
-                <span class="label">${esc(t('upload.cover'))}</span>
-                <div class="photo-preview photo-preview--cover">
-                  <img src="${coverFor(host, 900, 300)}" alt="" />
-                </div>
-                <div class="upload-actions">
-                  <label class="btn btn--outline btn--sm file-btn">
-                    ${icon('plus')}${esc(t('upload.change'))}
-                    <input type="file" accept="image/*" data-photo="cover" data-host="${host.id}" />
-                  </label>
-                  ${store.photoFor(host.id, 'cover') ? `<button class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="cover" data-host="${host.id}">${esc(t('upload.remove'))}</button>` : ''}
-                </div>
+
+          <div class="uploader">
+            <div class="photo-block">
+              <span class="label">${esc(t('upload.cover'))}</span>
+              <div class="photo-preview photo-preview--cover">
+                <img src="${store.photoFor(user.id, 'cover') || cover('cover-' + user.id, 900, 300)}" alt="" />
               </div>
-              <div class="photo-block">
-                <span class="label">${esc(t('upload.photo'))}</span>
-                <div class="photo-preview photo-preview--avatar">
-                  <img src="${store.photoFor(host.id, 'avatar') || avatar(host.name, host.id)}" alt="" />
-                </div>
-                <div class="upload-actions">
-                  <label class="btn btn--outline btn--sm file-btn">
-                    ${icon('plus')}${esc(t('upload.change'))}
-                    <input type="file" accept="image/*" data-photo="avatar" data-host="${host.id}" />
-                  </label>
-                  ${store.photoFor(host.id, 'avatar') ? `<button class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="avatar" data-host="${host.id}">${esc(t('upload.remove'))}</button>` : ''}
-                </div>
+              <div class="upload-actions">
+                <label class="btn btn--outline btn--sm file-btn">
+                  ${icon('plus')}${esc(t('upload.change'))}
+                  <input type="file" accept="image/*" data-photo="cover" data-host="${user.id}" />
+                </label>
+                ${store.photoFor(user.id, 'cover') ? `<button type="button" class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="cover" data-host="${user.id}">${esc(t('upload.remove'))}</button>` : ''}
               </div>
-              <p class="tiny muted">${esc(t('upload.hint'))}</p>
             </div>
-            <hr class="divider" />
-            <p class="small" style="margin-top:14px">${esc(host.bio)}</p>
-            <div class="row" style="gap:8px;margin-top:16px;flex-wrap:wrap">
-              <a class="btn btn--outline btn--sm" href="#/form-c">${icon('shield')}${esc(t('nav.formc'))}</a>
+            <div class="photo-block">
+              <span class="label">${esc(t('upload.photo'))}</span>
+              <div class="photo-preview photo-preview--avatar">
+                <img src="${store.photoFor(user.id, 'avatar') || avatar(user.name, user.id)}" alt="" />
+              </div>
+              <div class="upload-actions">
+                <label class="btn btn--outline btn--sm file-btn">
+                  ${icon('plus')}${esc(t('upload.change'))}
+                  <input type="file" accept="image/*" data-photo="avatar" data-host="${user.id}" />
+                </label>
+                ${store.photoFor(user.id, 'avatar') ? `<button type="button" class="btn btn--ghost btn--sm" data-action="clear-photo" data-kind="avatar" data-host="${user.id}">${esc(t('upload.remove'))}</button>` : ''}
+              </div>
             </div>
-          ` : `<p class="small muted">${esc(t('dash.empty'))}</p>`}
-        </div>`
+            <p class="tiny muted">${esc(t('upload.hint'))}</p>
+          </div>
+
+          <div class="grid grid--2" style="gap:14px">
+            <div class="field"><label for="p-name">${esc(t('auth.name'))}</label>
+              <input class="input" id="p-name" name="name" value="${esc(user.name)}" required /></div>
+            <div class="field"><label for="p-city">${esc(t('auth.city'))}</label>
+              <input class="input" id="p-city" name="city" value="${esc(user.city || '')}" /></div>
+          </div>
+
+          <div class="field"><label for="p-bio">${esc(t('host.about'))}</label>
+            <textarea class="textarea" id="p-bio" name="bio">${esc(user.bio || '')}</textarea></div>
+
+          <div class="field"><label for="p-langs">${esc(t('host.speaks'))}</label>
+            <select class="select" id="p-langs" name="languages" multiple size="5" style="height:auto;padding:8px">
+              ${LANGUAGES.map((l) => `<option value="${esc(l)}" ${(user.languages || []).includes(l) ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+            </select></div>
+
+          <hr class="divider" style="margin:0" />
+
+          <label class="check"><input type="checkbox" name="hosting" ${hostingEnabled ? 'checked' : ''} />${esc(t('profile.hosting'))}</label>
+
+          <div class="grid grid--2" style="gap:14px">
+            <div class="field"><label for="p-space">${esc(t('host.room'))}</label>
+              <input class="input" id="p-space" name="space" value="${esc(hosting.space || '')}" /></div>
+            <div class="field"><label for="p-max">${esc(t('search.guests'))}</label>
+              <select class="select" id="p-max" name="maxGuests">
+                ${[1, 2, 3, 4].map((n) => `<option value="${n}" ${Number(hosting.maxGuests) === n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select></div>
+          </div>
+          <label class="check"><input type="checkbox" name="womenOnly" ${hosting.womenOnly ? 'checked' : ''} />${esc(t('host.women'))}</label>
+
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn btn--primary" type="submit">${icon('check')}${esc(t('common.save'))}</button>
+            <a class="btn btn--outline btn--sm" href="#/form-c">${icon('shield')}${esc(t('nav.formc'))}</a>
+          </div>
+        </form>`
       : `<div class="stack" style="gap:14px">
           ${list.length ? list.map(requestRow).join('') : empty(t('dash.empty'), t('search.noneHint'), 'calendar')}
         </div>`}
@@ -727,7 +761,12 @@ export function messagesView(threadId) {
   const threads = store.threadsFor(user);
   const active = threads.find((x) => x.id === threadId) || threads[0] || null;
   const msgs = active ? store.messagesFor(active.id) : [];
-  const other = (th) => (user.hostId ? th.guestName : (hostById(th.hostId) || {}).name || '—');
+  const other = (th) => {
+    const iAmHost = th.hostId === user.id || (user.hostId && th.hostId === user.hostId);
+    return iAmHost
+      ? th.guestName || '—'
+      : th.hostName || (hostById(th.hostId) || {}).name || '—';
+  };
 
   return `
   <div class="container">
@@ -817,7 +856,7 @@ export function adminView(tab = 'reports') {
       <div class="stat-card"><span class="stat-card__num">${openReports.length}</span><span class="stat-card__label">${esc(t('admin.reports'))}</span></div>
       <div class="stat-card"><span class="stat-card__num">${pendingVerif.length}</span><span class="stat-card__label">${esc(t('admin.verifications'))}</span></div>
       <div class="stat-card"><span class="stat-card__num">${s.users.length}</span><span class="stat-card__label">${esc(t('admin.users'))}</span></div>
-      <div class="stat-card"><span class="stat-card__num">${HOSTS.length}</span><span class="stat-card__label">${esc(t('nav.explore'))}</span></div>
+      <div class="stat-card"><span class="stat-card__num">${allHosts().length}</span><span class="stat-card__label">${esc(t('nav.explore'))}</span></div>
     </div>
 
     <div class="tabs">

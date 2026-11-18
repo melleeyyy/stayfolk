@@ -1,0 +1,22 @@
+# Render blueprint — one web service, Node runtime, no build step.
+# Import this repo at https://render.com/docs/blueprint-spec
+#
+# NOTE: Render's free plan has an ephemeral filesystem, so accounts and photos
+# are lost whenever the service restarts or redeploys. The `disk` block below
+# keeps data permanently but requires a paid instance type. On the free plan,
+# treat the deployment as a demo and download server/data/db.json to back up.
+services:
+  - type: web
+    name: stayfolk
+    runtime: node
+    plan: free
+    buildCommand: "node -e \"console.log('no build step')\""
+    startCommand: "node server/index.js"
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+    # disk:
+    #   name: stayfolk-data
+    #   mountPath: /app/server/data
+    #   sizeGB: 1

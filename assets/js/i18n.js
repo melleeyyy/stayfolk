@@ -197,6 +197,8 @@ const en = {
   'footer.rights': '© 2026 StayFolk. All rights reserved.',
 
   'nav.formc': 'Form C checklist',
+  'profile.hosting': 'I can host guests',
+  'profile.saved': 'Profile saved',
   'pwa.install': 'Install app',
   'pwa.installed': 'App installed',
 
